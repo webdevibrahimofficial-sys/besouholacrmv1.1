@@ -172,12 +172,70 @@ class QuotationController extends Controller
      */
     public function show(Quotation $quotation)
     {
-        return response()->json($quotation);
+        return response()->json($quotation->load('customer'));
     }
 
     public function attachmentsIndex(Quotation $quotation)
     {
         return response()->json($this->normalizedAttachments($this->decodeMetaData($quotation->meta_data)));
+    }
+
+    public function attachmentsStore(Request $request, Quotation $quotation)
+    {
+        $files = $this->collectUploadedFiles($request);
+        if (!$files) {
+            return response()->json(['message' => 'No files uploaded', 'errors' => ['files' => ['No files uploaded']]], 422);
+        }
+
+        foreach ($files as $file) {
+            if ($file->getSize() > 10240 * 1024) {
+                return response()->json([
+                    'message' => 'File too large',
+                    'errors' => ['files' => ['Each file must be 10MB or smaller']],
+                ], 422);
+            }
+        }
+
+        $meta = $this->decodeMetaData($quotation->meta_data);
+        $attachments = is_array($meta['attachments'] ?? null) ? $meta['attachments'] : [];
+
+        foreach ($files as $file) {
+            $id = (string) Str::uuid();
+            $original = $file->getClientOriginalName();
+            $ext = $file->getClientOriginalExtension();
+            $safeBase = pathinfo($original, PATHINFO_FILENAME);
+            $safeBase = preg_replace('/[^A-Za-z0-9_\-]+/', '_', (string) $safeBase) ?: 'file';
+            $filename = $safeBase . '_' . $id . ($ext ? ('.' . $ext) : '');
+
+            $tenantId = $quotation->tenant_id ?: (app()->bound('current_tenant_id') ? app('current_tenant_id') : 'shared');
+            $path = $file->storeAs(
+                "tenants/{$tenantId}/quotations/{$quotation->id}/attachments",
+                $filename,
+                'public'
+            );
+
+            $entry = [
+                'id' => $id,
+                'name' => $original,
+                'path' => $path,
+                'url' => asset('storage/' . ltrim((string) $path, '/')),
+                'size' => $file->getSize(),
+                'mime' => $file->getMimeType(),
+                'created_at' => now()->toISOString(),
+            ];
+            $attachments[] = $entry;
+
+            $meta['attachment'] = $path;
+            $meta['attachment_name'] = $original;
+            $meta['attachment_type'] = $entry['mime'];
+            $meta['attachment_size'] = $entry['size'];
+        }
+
+        $meta['attachments'] = array_values($attachments);
+        $quotation->meta_data = $meta;
+        $quotation->save();
+
+        return response()->json($this->normalizedAttachments($meta));
     }
 
     /**
@@ -314,5 +372,23 @@ class QuotationController extends Controller
             'size' => $meta['attachment_size'] ?? null,
             'mime' => $meta['attachment_type'] ?? null,
         ]];
+    }
+
+    private function collectUploadedFiles(Request $request): array
+    {
+        $collected = [];
+        foreach ($request->allFiles() as $value) {
+            if (is_array($value)) {
+                foreach ($value as $file) {
+                    if ($file) {
+                        $collected[] = $file;
+                    }
+                }
+            } elseif ($value) {
+                $collected[] = $value;
+            }
+        }
+
+        return $collected;
     }
 }

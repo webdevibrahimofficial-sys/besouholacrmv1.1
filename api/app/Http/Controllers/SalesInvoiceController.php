@@ -22,9 +22,13 @@ class SalesInvoiceController extends Controller
 
     private function recalculateInvoiceFinancials(SalesInvoice $invoice): SalesInvoice
     {
-        $paid = (float) $invoice->payments()
+        $confirmed = (float) $invoice->payments()
             ->where('status', 'confirmed')
             ->sum('amount');
+        $refunded = (float) $invoice->payments()
+            ->where('status', 'refunded')
+            ->sum('amount');
+        $paid = max(0, $confirmed - $refunded);
 
         $invoice->paid_amount = $paid;
 
@@ -130,7 +134,7 @@ class SalesInvoiceController extends Controller
     {
         $query = SalesInvoice::query()->with([
             'order:id,uuid',
-            'customer:id,name,email',
+            'customer:id,name,email,address,country,city',
         ]);
 
         if ($request->filled('search')) {
@@ -174,6 +178,11 @@ class SalesInvoiceController extends Controller
             'payment_terms' => 'nullable|string',
             'currency' => 'nullable|string',
             'notes' => 'nullable|string',
+            'tax_rate' => 'nullable|numeric',
+            'is_tax_enabled' => 'nullable',
+            'discount_type' => 'nullable|string',
+            'discount_rate' => 'nullable|numeric',
+            'meta_data' => 'nullable|array',
         ]);
 
         $invoiceTypeLower = strtolower((string) ($validated['invoice_type'] ?? 'full'));
@@ -228,11 +237,28 @@ class SalesInvoiceController extends Controller
             }
         }
 
+        $meta = is_array($validated['meta_data'] ?? null) ? $validated['meta_data'] : [];
+        unset($validated['meta_data'], $validated['tax_rate'], $validated['is_tax_enabled'], $validated['discount_type'], $validated['discount_rate']);
+
+        if ($request->exists('tax_rate')) {
+            $meta['tax_rate'] = (float) $request->input('tax_rate');
+        }
+        if ($request->exists('is_tax_enabled')) {
+            $meta['is_tax_enabled'] = filter_var($request->input('is_tax_enabled'), FILTER_VALIDATE_BOOLEAN);
+        }
+        if ($request->filled('discount_type')) {
+            $meta['discount_type'] = strtolower((string) $request->input('discount_type')) === 'percent' ? 'percent' : 'value';
+        }
+        if ($request->exists('discount_rate')) {
+            $meta['discount_rate'] = (float) $request->input('discount_rate');
+        }
+
         $validated['created_by'] = Auth::user()->name ?? 'System';
         $invoice = SalesInvoice::create(array_merge($validated, [
             'paid_amount' => 0,
             'payment_status' => 'Unpaid',
             'balance_due' => max(0, (float) ($validated['total'] ?? 0) - (float) ($validated['advance_applied_amount'] ?? 0)),
+            'meta_data' => $meta,
         ]));
         $settings = CrmSetting::resolved();
         if (empty($invoice->invoice_number)) {
@@ -297,7 +323,7 @@ class SalesInvoiceController extends Controller
     {
         return $salesInvoice->load([
             'order:id,uuid',
-            'customer:id,name,email',
+            'customer:id,name,email,address,country,city',
         ]);
     }
 
@@ -327,6 +353,11 @@ class SalesInvoiceController extends Controller
             'payment_terms' => 'nullable|string',
             'currency' => 'nullable|string',
             'notes' => 'nullable|string',
+            'tax_rate' => 'nullable|numeric',
+            'is_tax_enabled' => 'nullable',
+            'discount_type' => 'nullable|string',
+            'discount_rate' => 'nullable|numeric',
+            'meta_data' => 'nullable|array',
         ]);
 
         $invoiceTypeLower = strtolower((string) ($validated['invoice_type'] ?? $salesInvoice->invoice_type ?? 'full'));
@@ -373,6 +404,26 @@ class SalesInvoiceController extends Controller
                 $validated['advance_applied_amount'] = 0;
             }
         }
+
+        $meta = is_array($salesInvoice->meta_data) ? $salesInvoice->meta_data : [];
+        if ($request->exists('meta_data') && is_array($request->input('meta_data'))) {
+            $meta = array_merge($meta, $request->input('meta_data'));
+        }
+        unset($validated['meta_data'], $validated['tax_rate'], $validated['is_tax_enabled'], $validated['discount_type'], $validated['discount_rate']);
+
+        if ($request->exists('tax_rate')) {
+            $meta['tax_rate'] = (float) $request->input('tax_rate');
+        }
+        if ($request->exists('is_tax_enabled')) {
+            $meta['is_tax_enabled'] = filter_var($request->input('is_tax_enabled'), FILTER_VALIDATE_BOOLEAN);
+        }
+        if ($request->filled('discount_type')) {
+            $meta['discount_type'] = strtolower((string) $request->input('discount_type')) === 'percent' ? 'percent' : 'value';
+        }
+        if ($request->exists('discount_rate')) {
+            $meta['discount_rate'] = (float) $request->input('discount_rate');
+        }
+        $validated['meta_data'] = $meta;
 
         $previousStatus = (string) $salesInvoice->status;
         $salesInvoice->update($validated);
@@ -443,6 +494,46 @@ class SalesInvoiceController extends Controller
         });
     }
 
+    /**
+     * Estimate monetary refund for returned stock lines (line net × returned qty / invoiced qty).
+     *
+     * @param  list<array{item_id?:int|string,name?:string,quantity?:int}>  $applied
+     */
+    private function estimateRefundAmount(SalesInvoice $invoice, array $applied): float
+    {
+        $items = is_array($invoice->items) ? $invoice->items : [];
+        $total = 0.0;
+
+        foreach ($applied as $row) {
+            $itemId = (int) ($row['item_id'] ?? 0);
+            $qty = (int) ($row['quantity'] ?? 0);
+            $rowName = trim((string) ($row['name'] ?? ''));
+            if ($qty < 1) {
+                continue;
+            }
+
+            foreach ($items as $line) {
+                $line = is_array($line) ? $line : (array) $line;
+                $lid = (int) ($line['item_id'] ?? $line['itemId'] ?? $line['product_id'] ?? 0);
+                $name = trim((string) ($line['name'] ?? $line['item_name'] ?? $line['product_name'] ?? ''));
+                $match = ($itemId > 0 && $lid === $itemId)
+                    || ($rowName !== '' && $name !== '' && strcasecmp($name, $rowName) === 0);
+                if (!$match) {
+                    continue;
+                }
+
+                $lineQty = max(1, (int) ($line['quantity'] ?? $line['qty'] ?? 1));
+                $price = (float) ($line['price'] ?? $line['unit_price'] ?? 0);
+                $discount = (float) ($line['discount'] ?? 0);
+                $lineNet = ($lineQty * $price) - $discount;
+                $total += ($lineNet / $lineQty) * $qty;
+                break;
+            }
+        }
+
+        return round(max(0, $total), 2);
+    }
+
     public function storeReturn(Request $request, SalesInvoice $salesInvoice)
     {
         $validated = $request->validate([
@@ -450,22 +541,66 @@ class SalesInvoiceController extends Controller
             'items.*.item_id' => 'nullable',
             'items.*.name' => 'nullable|string',
             'items.*.quantity' => 'required|integer|min:1',
+            'refund_payment' => 'nullable|boolean',
+            'payment_method' => 'nullable|string',
+            'notes' => 'nullable|string',
         ]);
 
         try {
-            $applied = app(ItemStockService::class)->returnInvoiceItems($salesInvoice, $validated['items']);
+            return DB::transaction(function () use ($validated, $salesInvoice) {
+                $applied = app(ItemStockService::class)->returnInvoiceItems(
+                    $salesInvoice->fresh(),
+                    $validated['items']
+                );
+
+                if ($applied === []) {
+                    return response()->json([
+                        'message' => 'No returnable quantities were applied.',
+                    ], 422);
+                }
+
+                $invoice = $salesInvoice->fresh();
+                $refundPayment = null;
+                $doRefundPayment = array_key_exists('refund_payment', $validated)
+                    ? (bool) $validated['refund_payment']
+                    : true;
+
+                if ($doRefundPayment) {
+                    $estimate = $this->estimateRefundAmount($invoice, $applied);
+                    $maxRefundable = max(0, (float) ($invoice->paid_amount ?? 0));
+                    $refundAmount = min($estimate, $maxRefundable);
+
+                    if ($refundAmount > 0.0001) {
+                        $refundPayment = SalesInvoicePayment::create([
+                            'sales_invoice_id' => $invoice->id,
+                            'payment_date' => now()->toDateString(),
+                            'amount' => $refundAmount,
+                            'payment_method' => $validated['payment_method']
+                                ?? $invoice->payment_method
+                                ?? null,
+                            'reference' => null,
+                            'notes' => $validated['notes']
+                                ?? 'Refund for returned invoice items',
+                            'status' => 'refunded',
+                            'created_by' => Auth::user()->name ?? 'System',
+                        ]);
+                        $invoice = $this->recalculateInvoiceFinancials($invoice->fresh());
+                    }
+                }
+
+                return response()->json([
+                    'message' => 'Refund recorded successfully',
+                    'returned' => $applied,
+                    'refund_payment' => $refundPayment,
+                    'invoice' => $invoice->fresh(),
+                ]);
+            });
         } catch (ValidationException $e) {
             return response()->json([
                 'message' => collect($e->errors())->flatten()->first(),
                 'errors' => $e->errors(),
             ], 422);
         }
-
-        return response()->json([
-            'message' => 'Return recorded successfully',
-            'returned' => $applied,
-            'invoice' => $salesInvoice->fresh(),
-        ]);
     }
 
     /**

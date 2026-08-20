@@ -24,7 +24,22 @@ import {
   resolveReportKpiTarget,
   resolveSalespersonRowTarget,
   shouldIncludeInSalespersonRows,
+  aggregateDealValueByPerson,
 } from '../utils/targetRevenueReport'
+
+const firstPersonId = (...values) => {
+  for (const value of values) {
+    if (value === null || value === undefined || value === '') continue
+    if (typeof value === 'object') {
+      const nested = value.id ?? value.user_id
+      if (nested === null || nested === undefined || nested === '' || Number(nested) === 0) continue
+      return String(nested)
+    }
+    if (Number(value) === 0) continue
+    return String(value)
+  }
+  return ''
+}
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend)
 
@@ -82,6 +97,7 @@ export default function ClosedDealsReport() {
   const [managerFilter, setManagerFilter] = useState('all')
   const [sourceFilter, setSourceFilter] = useState('all')
   const [projectFilter, setProjectFilter] = useState('all')
+  const [yearFilter, setYearFilter] = useState(String(new Date().getFullYear()))
   const [lastActionDateFrom, setLastActionDateFrom] = useState('')
   const [lastActionDateTo, setLastActionDateTo] = useState('')
   const [closedDealDateFrom, setClosedDealDateFrom] = useState('')
@@ -409,7 +425,9 @@ export default function ClosedDealsReport() {
           setTenantCreatedYear(Number(res.data.tenant_created_year))
         }
         if (res.data?.current_year) {
-          setReportCurrentYear(Number(res.data.current_year))
+          const nextYear = Number(res.data.current_year)
+          setReportCurrentYear(nextYear)
+          setYearFilter((prev) => prev || String(nextYear))
         }
       } catch (e) {
         console.error('Failed to fetch user targets for closed deals report', e)
@@ -469,6 +487,14 @@ export default function ClosedDealsReport() {
           const closedDateRaw = a.created_at || details.date || ''
 
           const lead = a.lead || {}
+          const salespersonId = firstPersonId(
+            lead.assigned_to,
+            lead.assignedTo,
+            lead.assigned_agent,
+            lead.assignedAgent,
+            a.user_id,
+            a.user
+          )
           const salesperson =
             (lead.assigned_agent && lead.assigned_agent.name) ||
             (lead.assignedAgent && lead.assignedAgent.name) ||
@@ -476,14 +502,6 @@ export default function ClosedDealsReport() {
             lead.salesperson ||
             (a.user && a.user.name) ||
             ''
-          const salespersonId =
-            lead.assigned_to ??
-            lead.assignedTo ??
-            (lead.assigned_agent && lead.assigned_agent.id) ??
-            (lead.assignedAgent && lead.assignedAgent.id) ??
-            a.user_id ??
-            (a.user && a.user.id) ??
-            null
           const lastActionDateRaw =
             lead.last_action_at ||
             lead.lastActionAt ||
@@ -507,9 +525,7 @@ export default function ClosedDealsReport() {
             lastActionDate: toLocalDateKey(lastActionDateRaw),
             status: resolveDealReportStatus(details),
             salesperson,
-            salespersonId: salespersonId !== null && salespersonId !== undefined && salespersonId !== ''
-              ? String(salespersonId)
-              : '',
+            salespersonId,
           }
         })
         setDeals(mapped)
@@ -601,11 +617,31 @@ export default function ClosedDealsReport() {
     fetchProjectsOrItems()
   }, [deals, isRealEstate, showProjectColumn])
 
+  const usersById = useMemo(() => {
+    const map = new Map()
+    ;(usersList || []).forEach((person) => {
+      if (person?.id == null) return
+      map.set(String(person.id), person)
+    })
+    return map
+  }, [usersList])
+
+  const dealsWithNames = useMemo(() => {
+    const unknownLabel = isRTL ? '\u063a\u064a\u0631 \u0645\u0639\u0631\u0648\u0641' : 'Unknown'
+    return deals.map((deal) => {
+      const user = deal.salespersonId ? usersById.get(String(deal.salespersonId)) : null
+      return {
+        ...deal,
+        salesperson: String(user?.name || deal.salesperson || '').trim() || unknownLabel,
+      }
+    })
+  }, [deals, usersById, isRTL])
+
   const salesPersonOptions = useMemo(() => {
     if (!usersList || usersList.length === 0) {
       const unique = Array.from(
         new Map(
-          deals
+          dealsWithNames
             .filter(d => d.salespersonId && d.salesperson)
             .map(d => [String(d.salespersonId), { value: String(d.salespersonId), label: d.salesperson }])
         ).values()
@@ -656,7 +692,7 @@ export default function ClosedDealsReport() {
           .map(u => [String(u.id), { value: String(u.id), label: u.name }])
       ).values())
     ]
-  }, [usersList, managerFilter, deals, t])
+  }, [usersList, managerFilter, dealsWithNames, t])
 
   const managerOptions = useMemo(() => {
     if (!usersList || usersList.length === 0) {
@@ -695,7 +731,7 @@ export default function ClosedDealsReport() {
   ), [projectOptions, t])
 
   const filtered = useMemo(() => {
-    return deals.filter(d => {
+    return dealsWithNames.filter(d => {
       const bySales = salesPersonFilter === 'all' ? true : String(d.salespersonId || '') === String(salesPersonFilter)
       const byManager = (() => {
         if (!usersList || managerFilter === 'all') return true
@@ -725,7 +761,7 @@ export default function ClosedDealsReport() {
       })()
       return bySales && byManager && bySource && byProject && byLastAction && byClosedDate
     })
-  }, [deals, salesPersonFilter, managerFilter, sourceFilter, projectFilter, lastActionDateFrom, lastActionDateTo, closedDealDateFrom, closedDealDateTo, usersList, showProjectColumn])
+  }, [dealsWithNames, salesPersonFilter, managerFilter, sourceFilter, projectFilter, lastActionDateFrom, lastActionDateTo, closedDealDateFrom, closedDealDateTo, usersList, showProjectColumn])
 
   const [currentPage, setCurrentPage] = useState(1)
   const [entriesPerPage, setEntriesPerPage] = useState(10)
@@ -741,38 +777,38 @@ export default function ClosedDealsReport() {
     currentPage * entriesPerPage
   )
 
-  const totalRevenue = filtered.reduce((sum, d) => sum + (d.value || 0), 0)
   const totalLeads = useMemo(() => {
     const set = new Set(filtered.map(d => d.leadName))
     return set.size
   }, [filtered])
 
-  const targetPeriod = useMemo(() => {
-    const from = String(closedDealDateFrom || '').slice(0, 10)
-    const to = String(closedDealDateTo || '').slice(0, 10)
-    if (!from && !to) {
-      return { yearFilter: String(currentYear), type: 'yearly' }
+  const yearOptions = useMemo(() => {
+    const start = Math.min(Number(tenantCreatedYear) || currentYear, currentYear)
+    const end = currentYear
+    const years = []
+    for (let year = end; year >= start; year -= 1) {
+      years.push({ value: String(year), label: String(year) })
     }
+    return years
+  }, [tenantCreatedYear, currentYear])
 
-    const start = from || to
-    const end = to || from
-    const startYear = Number(start.slice(0, 4))
-    const endYear = Number(end.slice(0, 4))
-    if (!startYear || !endYear || startYear !== endYear) {
-      return { yearFilter: 'all', type: 'yearly' }
+  useEffect(() => {
+    if (!yearOptions.length) return
+    if (!yearOptions.some((option) => option.value === String(yearFilter))) {
+      setYearFilter(yearOptions[0].value)
     }
+  }, [yearOptions, yearFilter])
 
-    const startMonth = Number(start.slice(5, 7)) - 1
-    const endMonth = Number(end.slice(5, 7)) - 1
-    if (startMonth === endMonth) return { yearFilter: String(startYear), type: 'monthly' }
-    if (Math.floor(startMonth / 3) === Math.floor(endMonth / 3)) {
-      return { yearFilter: String(startYear), type: 'quarterly' }
-    }
-    if (Math.floor(startMonth / 6) === Math.floor(endMonth / 6)) {
-      return { yearFilter: String(startYear), type: 'semi_annual' }
-    }
-    return { yearFilter: String(startYear), type: 'yearly' }
-  }, [closedDealDateFrom, closedDealDateTo, currentYear])
+  // Revenue + achievement cards are year-scoped; the rest of the report stays overall.
+  const yearlyFiltered = useMemo(() => {
+    const yearKey = String(yearFilter || currentYear)
+    return filtered.filter((deal) => String(deal.closedDate || '').slice(0, 4) === yearKey)
+  }, [filtered, yearFilter, currentYear])
+
+  const yearlyRevenue = useMemo(
+    () => yearlyFiltered.reduce((sum, deal) => sum + (deal.value || 0), 0),
+    [yearlyFiltered]
+  )
 
   const targetHistoryByUser = useMemo(() => {
     const map = new Map()
@@ -788,20 +824,21 @@ export default function ClosedDealsReport() {
   const companyPeriodTarget = useMemo(() => (
     resolveCompanyPeriodTarget({
       rows: companyTargetHistory,
-      yearFilter: targetPeriod.yearFilter,
-      type: targetPeriod.type,
+      yearFilter: String(yearFilter || currentYear),
+      type: 'yearly',
       currentYear,
       tenantCreatedYear,
       now: reportNow,
     })
-  ), [companyTargetHistory, targetPeriod, currentYear, tenantCreatedYear, reportNow])
+  ), [companyTargetHistory, yearFilter, currentYear, tenantCreatedYear, reportNow])
 
-  const target = useMemo(() => {
+  const yearlyTarget = useMemo(() => {
+    const selectedYear = String(yearFilter || currentYear)
     const personalTarget = (person) => resolveSalespersonRowTarget({
       user: person,
       rows: targetHistoryByUser.get(String(person?.id || '')) || [],
-      yearFilter: targetPeriod.yearFilter,
-      type: targetPeriod.type,
+      yearFilter: selectedYear,
+      type: 'yearly',
       currentYear,
       tenantCreatedYear,
       now: reportNow,
@@ -815,7 +852,7 @@ export default function ClosedDealsReport() {
       const mgr = usersList.find(person => String(person.id) === String(managerFilter))
       if (mgr) relevantUsers = [mgr, ...getDescendants(mgr.id, usersList)]
     } else {
-      const revenueUserIds = new Set(filtered.map(deal => String(deal.salespersonId || '')).filter(Boolean))
+      const revenueUserIds = new Set(yearlyFiltered.map(deal => String(deal.salespersonId || '')).filter(Boolean))
       relevantUsers = usersList.filter(person => shouldIncludeInSalespersonRows(person, {
         personalTarget: personalTarget(person),
         hasRevenue: revenueUserIds.has(String(person.id)),
@@ -833,15 +870,15 @@ export default function ClosedDealsReport() {
     salesPersonFilter,
     managerFilter,
     targetHistoryByUser,
-    targetPeriod,
+    yearFilter,
     currentYear,
     tenantCreatedYear,
     reportNow,
     companyPeriodTarget,
-    filtered,
+    yearlyFiltered,
   ])
 
-  const achievedPercent = calculateAchievementPercent(totalRevenue, target)
+  const achievedPercent = calculateAchievementPercent(yearlyRevenue, yearlyTarget)
 
   const closedByChannelSegments = useMemo(() => {
     const map = new Map()
@@ -897,45 +934,76 @@ export default function ClosedDealsReport() {
   }, [filtered, isRealEstate, t])
 
   const barData = useMemo(() => {
-    const map = new Map()
-    filtered.forEach(d => {
-      map.set(d.salesperson, (map.get(d.salesperson) || 0) + d.value)
+    let managerScopeIds = null
+    if (managerFilter && managerFilter !== 'all') {
+      const mgr = usersList.find(person => String(person.id) === String(managerFilter))
+      if (mgr) {
+        managerScopeIds = new Set([mgr, ...getDescendants(mgr.id, usersList)].map(person => String(person.id)))
+      }
+    }
+
+    const rows = aggregateDealValueByPerson({
+      deals: filtered,
+      users: usersList,
+      salesPersonFilter,
+      managerScopeIds,
+      unknownLabel: isRTL ? '\u063a\u064a\u0631 \u0645\u0639\u0631\u0648\u0641' : 'Unknown',
     })
-    const labels = Array.from(map.keys())
-    const values = Array.from(map.values())
+
     return {
-      labels,
+      labels: rows.map(row => row.label),
       datasets: [
         {
           label: isRTL ? '\u0642\u064a\u0645\u0629 \u0627\u0644\u0635\u0641\u0642\u0629' : 'Deal Value',
-          data: values,
-          backgroundColor: 'rgba(59, 130, 246, 0.7)'
+          data: rows.map(row => row.value),
+          backgroundColor: 'rgba(59, 130, 246, 0.7)',
+          borderRadius: 6,
+          maxBarThickness: 48,
         }
       ]
     }
-  }, [filtered, t])
+  }, [filtered, usersList, salesPersonFilter, managerFilter, isRTL])
 
-  const barOptions = {
-    responsive: true,
-    maintainAspectRatio: false,
-    indexAxis: 'x',
-    plugins: { legend: { display: false } },
-    scales: {
-      x: {
-        title: {
-          display: true,
-          text: isRTL ? '\u0645\u0633\u0624\u0648\u0644 \u0627\u0644\u0645\u0628\u064a\u0639\u0627\u062a' : 'Sales Person'
-        }
+  const barOptions = useMemo(() => {
+    const categoryCount = barData?.labels?.length || 1
+    const categoryPercentage = categoryCount <= 1
+      ? 0.16
+      : categoryCount === 2
+        ? 0.28
+        : categoryCount <= 4
+          ? 0.4
+          : categoryCount <= 8
+            ? 0.55
+            : 0.7
+
+    return {
+      responsive: true,
+      maintainAspectRatio: false,
+      indexAxis: 'x',
+      datasets: {
+        bar: {
+          barPercentage: 1,
+          categoryPercentage,
+        },
       },
-      y: {
-        beginAtZero: true,
-        title: {
-          display: true,
-          text: isRTL ? '\u0642\u064a\u0645\u0629 \u0627\u0644\u0635\u0641\u0642\u0629' : 'Deal Value'
+      plugins: { legend: { display: false } },
+      scales: {
+        x: {
+          title: {
+            display: true,
+            text: isRTL ? '\u0645\u0633\u0624\u0648\u0644 \u0627\u0644\u0645\u0628\u064a\u0639\u0627\u062a' : 'Sales Person'
+          }
+        },
+        y: {
+          beginAtZero: true,
+          title: {
+            display: true,
+            text: isRTL ? '\u0642\u064a\u0645\u0629 \u0627\u0644\u0635\u0641\u0642\u0629' : 'Deal Value'
+          }
         }
       }
     }
-  }
+  }, [barData, isRTL])
 
   const handleExportExcel = () => {
     if (!filtered.length) {
@@ -1070,6 +1138,7 @@ export default function ClosedDealsReport() {
     setManagerFilter('all')
     setSourceFilter('all')
     setProjectFilter('all')
+    setYearFilter(String(currentYear))
     setLastActionDateFrom('')
     setLastActionDateTo('')
     setClosedDealDateFrom('')
@@ -1227,6 +1296,26 @@ export default function ClosedDealsReport() {
                 />
               </div>
             )}
+            <div className="space-y-1">
+              <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
+                <Calendar size={12} className="text-blue-500 dark:text-blue-400" />
+                {isRTL ? '\u0627\u0644\u0633\u0646\u0629' : 'Year'}
+              </label>
+              <SearchableSelect
+                options={yearOptions}
+                value={yearFilter}
+                onChange={v => setYearFilter(v)}
+                placeholder={isRTL ? '\u0627\u0644\u0633\u0646\u0629' : 'Year'}
+                isRTL={isRTL}
+                showAllOption={false}
+                icon={<Calendar size={16} />}
+              />
+              <p className={`text-[11px] leading-snug ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                {isRTL
+                  ? '\u062e\u0627\u0635 \u0628\u0643\u0627\u0631\u062a\u064a Total Revenue (yearly) \u0648 Achieved of Target (yearly) \u0641\u0642\u0637'
+                  : 'Applies only to Total Revenue (yearly) and Achieved of Target (yearly)'}
+              </p>
+            </div>
           </div>
 
           <div
@@ -1274,8 +1363,20 @@ export default function ClosedDealsReport() {
         {[
           { label: isRTL ? '\u0625\u062c\u0645\u0627\u0644\u064a \u0627\u0644\u0635\u0641\u0642\u0627\u062a \u0627\u0644\u0645\u063a\u0644\u0642\u0629' : 'Total Closed Deals', value: totalDeals, accent: 'bg-emerald-500' },
           { label: t('Total Leads'), value: totalLeads, accent: 'bg-indigo-500' },
-          { label: t('Total Revenue'), value: `${totalRevenue.toLocaleString()} EGP`, accent: 'bg-blue-500' },
-          { label: isRTL ? '\u0627\u0644\u0645\u062d\u0642\u0642 \u0645\u0646 \u0627\u0644\u0647\u062f\u0641' : 'Achieved of Target', value: formatAchievementPercent(achievedPercent), accent: 'bg-orange-500' }
+          {
+            label: isRTL
+              ? '\u0625\u062c\u0645\u0627\u0644\u064a \u0627\u0644\u0625\u064a\u0631\u0627\u062f\u0627\u062a (yearly)'
+              : 'Total Revenue (yearly)',
+            value: `${yearlyRevenue.toLocaleString()} EGP`,
+            accent: 'bg-blue-500',
+          },
+          {
+            label: isRTL
+              ? '\u0627\u0644\u0645\u062d\u0642\u0642 \u0645\u0646 \u0627\u0644\u0647\u062f\u0641 (yearly)'
+              : 'Achieved of Target (yearly)',
+            value: formatAchievementPercent(achievedPercent),
+            accent: 'bg-orange-500',
+          },
         ].map(card => (
           <div
             key={card.label}
@@ -1300,8 +1401,10 @@ export default function ClosedDealsReport() {
             </div>
             <div className={`text-sm font-semibold ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? '\u0642\u064a\u0645\u0629 \u0627\u0644\u0635\u0641\u0642\u0627\u062a \u0644\u0643\u0644 \u0645\u0633\u0624\u0648\u0644' : 'Deal Value for each Person'}</div>
           </div>
-          <div className="flex-1 mt-2 w-full min-h-[220px]">
-            <Bar data={barData} options={barOptions} />
+          <div className="flex-1 mt-2 w-full min-h-[220px] overflow-x-auto">
+            <div style={{ minWidth: Math.max(280, (barData.labels?.length || 1) * 90), height: 220 }}>
+              <Bar data={barData} options={barOptions} />
+            </div>
           </div>
         </div>
       </div>

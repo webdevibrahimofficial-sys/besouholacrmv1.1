@@ -544,6 +544,7 @@ Route::post('revenues', [\App\Http\Controllers\RevenueController::class, 'store'
     Route::apiResource('leads', LeadController::class);
 
     Route::get('quotations/{quotation}/attachments', [QuotationController::class, 'attachmentsIndex']);
+    Route::post('quotations/{quotation}/attachments', [QuotationController::class, 'attachmentsStore']);
     Route::apiResource('quotations', QuotationController::class);
 
     Route::get('campaigns/dashboard-stats', [\App\Http\Controllers\CampaignController::class , 'dashboardStats']);

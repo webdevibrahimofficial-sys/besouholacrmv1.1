@@ -124,4 +124,60 @@ class ItemStockFlowTest extends TestCase
             ],
         ])->assertStatus(422);
     }
+
+    public function test_invoice_refund_creates_refunded_payment_and_reduces_paid(): void
+    {
+        $item = Item::create([
+            'tenant_id' => $this->tenant->id,
+            'name' => 'Refund Money Item',
+            'code' => 'RFM-001',
+            'quantity' => 0,
+            'reserved_quantity' => 0,
+            'sold_quantity' => 2,
+            'price' => 50,
+        ]);
+
+        $invoice = SalesInvoice::create([
+            'tenant_id' => $this->tenant->id,
+            'customer_name' => 'Refund Money Customer',
+            'issue_date' => now()->toDateString(),
+            'status' => 'Posted',
+            'payment_status' => 'Paid',
+            'total' => 100,
+            'paid_amount' => 100,
+            'balance_due' => 0,
+            'items' => [
+                ['item_id' => $item->id, 'name' => $item->name, 'quantity' => 2, 'price' => 50],
+            ],
+            'meta_data' => ['stock_applied' => true],
+        ]);
+
+        $invoice->payments()->create([
+            'tenant_id' => $this->tenant->id,
+            'payment_date' => now()->toDateString(),
+            'amount' => 100,
+            'status' => 'confirmed',
+            'created_by' => 'Test',
+        ]);
+
+        $response = $this->postJson("/api/sales-invoices/{$invoice->id}/returns", [
+            'items' => [
+                ['item_id' => $item->id, 'quantity' => 1],
+            ],
+            'refund_payment' => true,
+        ]);
+
+        $response->assertSuccessful();
+        $invoice->refresh();
+        $this->assertSame(50.0, (float) $invoice->paid_amount);
+        $this->assertSame(50.0, (float) $invoice->balance_due);
+        $this->assertDatabaseHas('sales_invoice_payments', [
+            'sales_invoice_id' => $invoice->id,
+            'status' => 'refunded',
+            'amount' => 50,
+        ]);
+        $item->refresh();
+        $this->assertSame(1, (int) $item->quantity);
+        $this->assertSame(1, (int) $item->sold_quantity);
+    }
 }

@@ -1603,7 +1603,7 @@ export default function ReservationsReport() {
         <div className="h-3" aria-hidden="true"></div>
 
         <div className="backdrop-blur-md rounded-2xl shadow-sm border border-theme-border dark:border-gray-700/50 overflow-hidden p-4">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center justify-between mb-4 pb-4 border-b border-theme-border dark:border-gray-700/50">
             <div className={`text-sm font-semibold ${isLight ? 'text-black' : 'text-white'}`}>{isRTL ? 'نظرة عامة على الحجوزات' : 'Reservations Overview'}</div>
             {canExport && (
               <div className="relative" ref={exportMenuRef}>

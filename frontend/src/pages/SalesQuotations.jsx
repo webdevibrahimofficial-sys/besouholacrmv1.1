@@ -5,13 +5,15 @@ import DatePicker from 'react-datepicker'
 import "react-datepicker/dist/react-datepicker.css"
 import { api, logExportEvent } from '../utils/api'
 import { useTheme } from '../shared/context/ThemeProvider'
-import { FaDownload, FaFileExport, FaPlus, FaFileImport, FaEye, FaEdit, FaTrash, FaStickyNote, FaShoppingCart } from 'react-icons/fa'
+import { FaDownload, FaFileExport, FaPlus, FaFileImport, FaEye, FaEdit, FaTrash, FaStickyNote, FaShoppingCart, FaEllipsisV } from 'react-icons/fa'
 import { Filter, ChevronDown, Search, User, DollarSign, Calendar } from 'lucide-react'
 import SearchableSelect from '../components/SearchableSelect'
-import QuotationsFormModal from '../components/QuotationsFormModal'
+import QuotationsFormModal, { getQuotationLineDiscountAmount, getQuotationLineTotal } from '../components/QuotationsFormModal'
 import QuotationsImportModal from '../components/QuotationsImportModal'
 import QuotationPreviewModal from '../components/QuotationPreviewModal'
 import SalesOrdersFormModal from '../components/SalesOrdersFormModal'
+import { resolveDocumentCustomerAddress } from '../shared/utils/customerAddress'
+import { pickAttachmentFile, uploadDocumentAttachments } from '../shared/utils/uploadDocumentAttachments'
 import * as XLSX from 'xlsx'
 
 function parseQuotationMeta(quotation) {
@@ -28,10 +30,21 @@ function parseQuotationMeta(quotation) {
 
 function mapQuotationAttachment(quotation) {
   const meta = parseQuotationMeta(quotation)
-  const list = Array.isArray(meta.attachments) ? meta.attachments : []
+  let list = Array.isArray(meta.attachments) ? meta.attachments.slice() : []
+  const legacyPath = quotation?.attachment || meta.attachment || null
+  if (!list.length && legacyPath) {
+    list = [{
+      id: 'legacy',
+      name: quotation?.attachmentName || quotation?.attachment_name || meta.attachment_name || String(legacyPath).split('/').pop() || 'Attachment',
+      path: legacyPath,
+      url: legacyPath,
+      size: meta.attachment_size || null,
+      mime: meta.attachment_type || null,
+    }]
+  }
   const first = list[0] || null
   return {
-    attachment: quotation?.attachment || meta.attachment || first?.path || first?.url || null,
+    attachment: legacyPath || first?.path || first?.url || null,
     attachmentName: quotation?.attachmentName || quotation?.attachment_name || meta.attachment_name || first?.name || null,
     attachments: list,
   }
@@ -56,6 +69,9 @@ export default function SalesQuotations() {
   const [successMessage, setSuccessMessage] = useState('')
   const [activeRowId, setActiveRowId] = useState(null)
   const [expandedRowId, setExpandedRowId] = useState(null)
+  const [openDropdownId, setOpenDropdownId] = useState(null)
+  const [dropdownPos, setDropdownPos] = useState({ top: 0, left: 0, aboveTop: 0 })
+  const [openDropdownAbove, setOpenDropdownAbove] = useState(false)
   
   // Conversion State
   const [showOrderModal, setShowOrderModal] = useState(false)
@@ -119,10 +135,6 @@ export default function SalesQuotations() {
       })
 
       const mapped = (Array.isArray(rawQuotations) ? rawQuotations : []).map(q => {
-        // Debugging logs for empty fields
-        if (!q.created_by && !q.created_by_name) console.warn('Missing created_by for quotation:', q.id, q);
-        if (q.tax === undefined && q.tax_amount === undefined) console.warn('Missing tax for quotation:', q.id, q);
-
         const subtotal = Number(q.subtotal || 0)
         const total = Number(q.total || 0)
         const meta = parseQuotationMeta(q)
@@ -135,6 +147,8 @@ export default function SalesQuotations() {
         quotationCode: meta.quotation_code || q.quotation_code || q.quotationCode || q.id,
         customerCode: q.customer?.customer_code || q.customer_id || q.customer_code || q.customerCode || '',
         customerName: q.customer_name || q.customerName || '',
+        customerAddress: resolveDocumentCustomerAddress(q, customersData),
+        customer: q.customer || null,
         status: q.status || 'Draft',
         items: Array.isArray(q.items) ? q.items : [],
         subtotal,
@@ -295,7 +309,11 @@ export default function SalesQuotations() {
         quotationId: quotation.id,
         customerCode: quotation.customerCode,
         customerName: quotation.customerName,
-        items: quotation.items || [],
+        items: (quotation.items || []).map((item) => ({
+          ...item,
+          discount: getQuotationLineDiscountAmount(item),
+          discountType: 'value',
+        })),
         total: quotation.total,
         tax: quotation.tax,
         discountRate: discountRate, // Pass calculated rate
@@ -776,7 +794,7 @@ export default function SalesQuotations() {
                     </td>
                     <td className="p-4 whitespace-nowrap">
                       <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
-                        item.status === 'Approved' ? 'bg-green-100 text-green-800' :
+                        item.status === 'Approved' || item.status === 'Converted' ? 'bg-green-100 text-green-800' :
                         item.status === 'Rejected' ? 'bg-red-100 text-red-800' :
                         item.status === 'Sent' ? 'bg-blue-100 text-blue-800' :
                         'bg-gray-100 text-gray-800'
@@ -816,18 +834,7 @@ export default function SalesQuotations() {
                       ) : '—'}
                     </td>
                     <td className={`p-4 whitespace-nowrap ${activeRowId === item.id ? 'sticky ltr:right-0 rtl:left-0 bg-theme-bg shadow-[-10px_0_15px_-3px_rgba(0,0,0,0.1)] dark:shadow-none z-10' : ''}`}>
-                      <div className="flex items-center justify-end gap-3">
-                        <button 
-                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-purple-50 text-purple-600 hover:bg-purple-100 dark:bg-purple-900/20 dark:text-purple-400 dark:hover:bg-purple-900/40 transition-colors shadow-sm"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            handleConvertToOrder(item)
-                          }}
-                          title={isRTL ? 'تحويل لطلب' : 'Convert to Order'}
-                        >
-                          <FaShoppingCart size={14} />
-                          <span className="hidden xl:inline">{isRTL ? 'تحويل' : 'Convert'}</span>
-                        </button>
+                      <div className="flex items-center justify-end gap-2">
                         <button 
                           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-blue-50 text-blue-600 hover:bg-blue-100 dark:bg-blue-900/20 dark:text-blue-400 dark:hover:bg-blue-900/40 transition-colors shadow-sm"
                           onClick={(e) => {
@@ -849,16 +856,78 @@ export default function SalesQuotations() {
                           <FaEdit size={14} />
                           <span className="hidden xl:inline">{isRTL ? 'تعديل' : 'Edit'}</span>
                         </button>
-                        <button 
-                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-900/20 dark:text-red-400 dark:hover:bg-red-900/40 transition-colors shadow-sm" 
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            handleDelete(item.id)
-                          }}
-                        >
-                          <FaTrash size={14} />
-                          <span className="hidden xl:inline">{isRTL ? 'حذف' : 'Delete'}</span>
-                        </button>
+
+                        <div className="relative" onClick={(e) => e.stopPropagation()}>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              const opening = openDropdownId !== item.id
+                              if (opening) {
+                                const r = e.currentTarget.getBoundingClientRect()
+                                const vh = window.innerHeight
+                                const mh = 140
+                                const spaceBelow = vh - r.bottom
+                                const spaceAbove = r.top
+                                const openAbove = spaceBelow < mh && spaceAbove > mh
+                                setDropdownPos({
+                                  top: r.bottom + 5,
+                                  left: isRTL ? r.left : (r.right - 192),
+                                  aboveTop: r.top - 5
+                                })
+                                setOpenDropdownAbove(openAbove)
+                              }
+                              setOpenDropdownId(opening ? item.id : null)
+                            }}
+                            className="flex items-center justify-center w-8 h-8 rounded-lg bg-blue-600 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors text-white"
+                            title={isRTL ? 'خيارات أخرى' : 'More Actions'}
+                          >
+                            <FaEllipsisV size={12} />
+                          </button>
+
+                          {openDropdownId === item.id && createPortal(
+                            <>
+                              <div
+                                className="fixed inset-0 z-[9998]"
+                                onClick={(e) => { e.stopPropagation(); setOpenDropdownId(null) }}
+                              />
+                              <div
+                                className="fixed w-48 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 z-[9999] overflow-hidden bg-white dark:bg-gray-800"
+                                style={{
+                                  top: openDropdownAbove ? 'auto' : dropdownPos.top,
+                                  bottom: openDropdownAbove ? (window.innerHeight - dropdownPos.aboveTop) : 'auto',
+                                  left: dropdownPos.left,
+                                }}
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <div className="py-1">
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      handleConvertToOrder(item)
+                                      setOpenDropdownId(null)
+                                    }}
+                                    className="w-full text-start text-black dark:text-gray-200 px-4 py-2 text-sm flex items-center gap-2 hover:bg-gray-50 dark:hover:bg-gray-700"
+                                  >
+                                    <FaShoppingCart size={14} className="text-purple-500" />
+                                    <span className="font-medium">{isRTL ? 'تحويل لطلب' : 'Convert to Order'}</span>
+                                  </button>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      handleDelete(item.id)
+                                      setOpenDropdownId(null)
+                                    }}
+                                    className="w-full text-start px-4 py-2 text-sm flex items-center gap-2 hover:bg-red-50 dark:hover:bg-red-900/20 text-red-600 border-t border-gray-100 dark:border-gray-700"
+                                  >
+                                    <FaTrash size={14} />
+                                    <span className="font-medium">{isRTL ? 'حذف' : 'Delete'}</span>
+                                  </button>
+                                </div>
+                              </div>
+                            </>,
+                            document.body
+                          )}
+                        </div>
                       </div>
                     </td>
                   </tr>
@@ -873,7 +942,7 @@ export default function SalesQuotations() {
                                 <th className="px-4 py-2">{isRTL ? 'الفئة' : 'Category'}</th>
                                 <th className="px-4 py-2">{isRTL ? 'اسم العنصر' : 'Item Name'}</th>
                                 <th className="px-4 py-2">{isRTL ? 'الكمية' : 'Qty'}</th>
-                                <th className="px-4 py-2">{isRTL ? 'السعر' : 'Price'}</th>
+                                <th className="px-4 py-2">{isRTL ? 'المبلغ' : 'Amount'}</th>
                                 <th className="px-4 py-2">{isRTL ? 'الخصم' : 'Discount'}</th>
                                 <th className="px-4 py-2">{isRTL ? 'المجموع' : 'Total'}</th>
                               </tr>
@@ -887,9 +956,13 @@ export default function SalesQuotations() {
                                     <td className="px-4 py-2 font-medium">{subItem.name}</td>
                                     <td className="px-4 py-2">{subItem.quantity}</td>
                                     <td className="px-4 py-2">{Number(subItem.price).toLocaleString()}</td>
-                                    <td className="px-4 py-2">{Number(subItem.discount || 0).toLocaleString()}</td>
+                                    <td className="px-4 py-2">
+                                      {String(subItem.discountType || subItem.discount_type || 'value').toLowerCase() === 'percent'
+                                        ? `${Number(subItem.discount || 0)}%`
+                                        : getQuotationLineDiscountAmount(subItem).toLocaleString()}
+                                    </td>
                                     <td className="px-4 py-2 font-semibold">
-                                      {((subItem.quantity * subItem.price) - (subItem.discount || 0)).toLocaleString()}
+                                      {getQuotationLineTotal(subItem).toLocaleString()}
                                     </td>
                                   </tr>
                                 ))
@@ -928,7 +1001,7 @@ export default function SalesQuotations() {
                     <p className="text-xs text-blue-600 dark:text-blue-400 font-medium">{item.quotationCode || item.id}</p>
                   </div>
                   <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
-                    item.status === 'Approved' ? 'bg-green-100 text-green-800' :
+                    item.status === 'Approved' || item.status === 'Converted' ? 'bg-green-100 text-green-800' :
                     item.status === 'Rejected' ? 'bg-red-100 text-red-800' :
                     item.status === 'Sent' ? 'bg-blue-100 text-blue-800' :
                     'bg-gray-100 text-gray-800'
@@ -971,6 +1044,16 @@ export default function SalesQuotations() {
                     }}
                   >
                     <FaEdit size={16} />
+                  </button>
+                  <button 
+                    className="p-2 rounded-lg bg-purple-50 text-purple-600 hover:bg-purple-100 dark:bg-purple-900/20 dark:text-purple-400"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      handleConvertToOrder(item)
+                    }}
+                    title={isRTL ? 'تحويل لطلب' : 'Convert to Order'}
+                  >
+                    <FaShoppingCart size={16} />
                   </button>
                   <button 
                     className="p-2 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-900/20 dark:text-red-400"
@@ -1100,52 +1183,63 @@ export default function SalesQuotations() {
           setEditingItem(null)
         }}
         onSave={async (data) => {
+          const attachmentFile = pickAttachmentFile(data?.attachment)
           try {
-            const formData = new FormData();
-            
-            // Helper to append data
-            const appendData = (key, value) => {
-                if (value === null || value === undefined) return;
-                if (typeof value === 'object' && !(value instanceof File)) {
-                    formData.append(key, JSON.stringify(value));
-                } else {
-                    formData.append(key, value);
-                }
-            };
+            const customerId = data.customerCode ?? editingItem?.customerCode ?? editingItem?.customer_id
+            const salesPerson = data.salesPerson ?? editingItem?.salesPerson ?? editingItem?.sales_person
 
-            // Map fields
-            const customerId = data.customerCode ?? editingItem?.customerCode ?? editingItem?.customer_id;
-            const salesPerson = data.salesPerson ?? editingItem?.salesPerson ?? editingItem?.sales_person;
-            
-            if (customerId) formData.append('customer_id', String(customerId));
-            if (data.customerName) formData.append('customer_name', data.customerName);
-            if (data.status) formData.append('status', data.status);
-            if (data.date) formData.append('date', data.date);
-            if (data.expiryDate) formData.append('valid_until', data.expiryDate);
-            if (data.subtotal !== undefined) formData.append('subtotal', data.subtotal);
-            if (data.total !== undefined) formData.append('total', data.total);
-            if (data.items) formData.append('items', JSON.stringify(data.items)); // Send as JSON string
-            if (data.notes) formData.append('notes', data.notes);
-            if (salesPerson) formData.append('sales_person', String(salesPerson));
-            if (data.tax !== undefined) formData.append('tax', data.tax);
-            if (data.taxRate !== undefined) formData.append('tax_rate', data.taxRate);
-            if (data.isTaxEnabled !== undefined) formData.append('is_tax_enabled', data.isTaxEnabled ? 1 : 0);
-            
-            // Attachment
-            if (data.attachment instanceof File) {
-                formData.append('attachment', data.attachment);
+            // Save quotation as JSON first, then upload on dedicated attachments endpoint.
+            const payload = {
+              customer_id: customerId ? String(customerId) : undefined,
+              customer_name: data.customerName || undefined,
+              status: data.status || undefined,
+              date: data.date || undefined,
+              valid_until: data.expiryDate || undefined,
+              subtotal: data.subtotal,
+              total: data.total,
+              items: Array.isArray(data.items) ? data.items : [],
+              notes: data.notes || undefined,
+              sales_person: salesPerson ? String(salesPerson) : undefined,
+              tax: data.tax,
+              tax_rate: data.taxRate,
+              is_tax_enabled: data.isTaxEnabled ? 1 : 0,
             }
 
+            let saved = null
             if (editingItem) {
-              formData.append('_method', 'PUT'); // Laravel method spoofing for FormData
-              await api.post(`/api/quotations/${editingItem.id}`, formData);
-              await load();
-              showSuccess(isRTL ? 'تم تحديث عرض السعر' : 'Quotation updated successfully');
+              const res = await api.put(`/api/quotations/${editingItem.id}`, payload)
+              saved = res?.data || null
             } else {
-              await api.post('/api/quotations', formData);
-              await load();
-              showSuccess(isRTL ? 'تم إضافة عرض السعر' : 'Quotation added successfully');
+              const res = await api.post('/api/quotations', payload)
+              saved = res?.data || null
             }
+
+            const quotationId = saved?.id || editingItem?.id
+            if (attachmentFile) {
+              if (!quotationId) {
+                alert(isRTL
+                  ? 'تم حفظ عرض السعر لكن تعذر رفع المرفق (المعرف مفقود)'
+                  : 'Quotation saved but attachment could not be uploaded (missing id)')
+              } else {
+                try {
+                  await uploadDocumentAttachments(api, `/api/quotations/${quotationId}/attachments`, attachmentFile)
+                } catch (uploadError) {
+                  console.error('Failed to upload quotation attachment:', uploadError)
+                  alert(isRTL
+                    ? 'تم حفظ عرض السعر لكن فشل رفع المرفق'
+                    : 'Quotation saved but attachment upload failed')
+                  await load()
+                  setShowForm(false)
+                  setEditingItem(null)
+                  return
+                }
+              }
+            }
+
+            await load()
+            showSuccess(editingItem
+              ? (isRTL ? 'تم تحديث عرض السعر' : 'Quotation updated successfully')
+              : (isRTL ? 'تم إضافة عرض السعر' : 'Quotation added successfully'))
             setShowForm(false)
             setEditingItem(null)
           } catch (e) {
@@ -1161,6 +1255,7 @@ export default function SalesQuotations() {
         isOpen={!!previewItem}
         onClose={() => setPreviewItem(null)}
         quotation={previewItem}
+        customers={customersList}
       />
 
       <SalesOrdersFormModal
@@ -1170,6 +1265,7 @@ export default function SalesQuotations() {
             setOrderData(null)
         }}
         onSave={async (data) => {
+            const attachmentFile = pickAttachmentFile(data?.attachment)
             try {
                 const payload = {
                     customer_id: data.customerId && !isNaN(data.customerId) ? Number(data.customerId) : undefined,
@@ -1192,7 +1288,18 @@ export default function SalesQuotations() {
                     delete payload.customer_id
                 }
 
-                await api.post('/api/sales-orders', payload)
+                const res = await api.post('/api/sales-orders', payload)
+                const orderId = res?.data?.id
+                if (attachmentFile && orderId) {
+                  try {
+                    await uploadDocumentAttachments(api, `/api/sales-orders/${orderId}/attachments`, attachmentFile)
+                  } catch (uploadError) {
+                    console.error('Failed to upload order attachment:', uploadError)
+                    alert(isRTL
+                      ? 'تم إنشاء الطلب لكن فشل رفع المرفق'
+                      : 'Order created but attachment upload failed')
+                  }
+                }
 
                 showSuccess(isRTL ? 'تم إنشاء الطلب بنجاح' : 'Order created successfully')
                 setShowOrderModal(false)

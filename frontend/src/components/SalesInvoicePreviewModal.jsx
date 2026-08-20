@@ -4,7 +4,9 @@ import { useReactToPrint } from 'react-to-print'
 import { FaPrint, FaTimes } from 'react-icons/fa'
 import { useAppState } from '@shared/context/AppStateProvider'
 import { extractTenantCompanyProfile } from '@shared/utils/tenantCompanyProfile'
+import { resolveDocumentCustomerAddress } from '@shared/utils/customerAddress'
 import { useTheme } from '@shared/context/ThemeProvider'
+import { getQuotationLineDiscountAmount, getQuotationLineTotal } from './QuotationsFormModal'
 
 const statusToneMap = {
   Draft: 'bg-sky-100 text-sky-800 border-sky-200',
@@ -18,7 +20,7 @@ const paymentToneMap = {
   Paid: 'bg-emerald-100 text-emerald-800 border-emerald-200',
 }
 
-function SalesInvoicePreviewModal({ isOpen, onClose, invoice }) {
+function SalesInvoicePreviewModal({ isOpen, onClose, invoice, customers = [] }) {
   const { i18n } = useTranslation()
   const isRTL = i18n.dir() === 'rtl'
   const { company, crmSettings } = useAppState()
@@ -57,7 +59,7 @@ function SalesInvoicePreviewModal({ isOpen, onClose, invoice }) {
       issueDate: invoice.issueDate || invoice.issue_date || invoice.date || null,
       dueDate: invoice.dueDate || invoice.due_date || null,
       customerName: invoice.customerName || invoice.customer_name || (isRTL ? 'عميل غير محدد' : 'Unnamed customer'),
-      customerAddress: invoice.customerAddress || invoice.customer_address || '',
+      customerAddress: resolveDocumentCustomerAddress(invoice, customers),
       salesPerson: invoice.salesPerson || invoice.sales_person || '',
       status: invoice.status || 'Draft',
       paymentStatus: invoice.paymentStatus || invoice.payment_status || 'Unpaid',
@@ -67,8 +69,10 @@ function SalesInvoicePreviewModal({ isOpen, onClose, invoice }) {
       currency: currencyCode,
       notes: invoice.notes || '',
       orderReference: invoice.orderUuid || invoice.order?.uuid || invoice.orderId || invoice.order_id || '',
+      meta_data: invoice.meta_data || invoice.metaData || {},
+      installments: invoice.installments || invoice.meta_data?.installments || invoice.metaData?.installments || null,
     }
-  }, [currencyCode, invoice, isRTL])
+  }, [currencyCode, customers, invoice, isRTL])
 
   const handlePrint = useReactToPrint({
     contentRef: printRef,
@@ -120,8 +124,37 @@ function SalesInvoicePreviewModal({ isOpen, onClose, invoice }) {
 
   const formatItemMeta = (item) => {
     const meta = [String(item.type || '').trim(), String(item.category || '').trim()].filter(Boolean)
-    return meta.length ? `(${meta.join(', ')})` : ''
+    const addonNames = (Array.isArray(item.addons) ? item.addons : [])
+      .map((addon) => String(addon?.name || '').trim())
+      .filter(Boolean)
+    const base = meta.length ? `(${meta.join(', ')})` : ''
+    if (!addonNames.length) return base
+    const addonsLabel = isRTL
+      ? `إضافات: ${addonNames.join('، ')}`
+      : `Add-ons: ${addonNames.join(', ')}`
+    return base ? `${base} · ${addonsLabel}` : addonsLabel
   }
+
+  const formatInvoiceTypeLabel = (type) => {
+    const t = String(type || '').toLowerCase()
+    if (t === 'full') return isRTL ? 'دفع كامل' : 'Full Payment'
+    if (t === 'partial') return isRTL ? 'دفع جزئي' : 'Partial Payment'
+    if (t === 'advance') return isRTL ? 'دفع مؤجل' : 'Deferred Payment'
+    return type || '-'
+  }
+
+  const installmentPlan = (() => {
+    const meta = normalizedInvoice?.meta_data || normalizedInvoice?.metaData || {}
+    const plan = normalizedInvoice?.installments || meta?.installments || null
+    if (!plan || !plan.enabled) return null
+    const schedule = Array.isArray(plan.schedule) ? plan.schedule : []
+    if (!schedule.length) return null
+    return plan
+  })()
+
+  const isPartialPaymentInvoice = String(normalizedInvoice?.invoiceType || '').toLowerCase() === 'partial'
+  const isDeferredPaymentInvoice = String(normalizedInvoice?.invoiceType || '').toLowerCase() === 'advance'
+  const showsPaymentTerms = isPartialPaymentInvoice || isDeferredPaymentInvoice
 
   if (!isOpen || !normalizedInvoice) return null
 
@@ -379,7 +412,7 @@ function SalesInvoicePreviewModal({ isOpen, onClose, invoice }) {
                       </div>
                       <div className="min-w-0">
                         <div className="text-[11px] uppercase tracking-[0.14em] text-slate-600">{isRTL ? 'نوع الفاتورة' : 'Invoice Type'}</div>
-                        <div className="mt-0.5 font-semibold text-slate-950">{normalizedInvoice.invoiceType}</div>
+                        <div className="mt-0.5 font-semibold text-slate-950">{formatInvoiceTypeLabel(normalizedInvoice.invoiceType)}</div>
                       </div>
                       <div className="min-w-0">
                         <div className="text-[11px] uppercase tracking-[0.14em] text-slate-600">{isRTL ? 'طريقة الدفع' : 'Payment Method'}</div>
@@ -431,10 +464,12 @@ function SalesInvoicePreviewModal({ isOpen, onClose, invoice }) {
                       <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400">{isRTL ? 'كود العميل' : 'Customer Code'}</div>
                       <div className="mt-1 font-medium text-slate-800">{normalizedInvoice.customerCode || '-'}</div>
                     </div>
+                    {showsPaymentTerms && (
                     <div className="min-w-[150px]">
                       <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400">{isRTL ? 'شروط السداد' : 'Payment Terms'}</div>
                       <div className="mt-1 font-medium text-slate-800">{normalizedInvoice.paymentTerms || (isRTL ? 'غير محددة' : 'Not specified')}</div>
                     </div>
+                    )}
                   </div>
                 </div>
                 <div className={`border-y-2 px-3 py-4 ${borderStrongClass} print-light-surface print-light-border`}>
@@ -456,6 +491,37 @@ function SalesInvoicePreviewModal({ isOpen, onClose, invoice }) {
                       </div>
                     </div>
                   </div>
+                  <div className={`mt-4 grid gap-4 border-t pt-4 grid-cols-2 sm:grid-cols-3 ${borderSoftClass}`}>
+                    <div className="min-w-0">
+                      <div className={`text-[11px] font-semibold uppercase tracking-[0.14em] ${subtleTextClass}`}>
+                        {isRTL ? 'نوع الفاتورة' : 'Invoice Type'}
+                      </div>
+                      <div className={`mt-1 text-sm font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                        {formatInvoiceTypeLabel(normalizedInvoice.invoiceType)}
+                      </div>
+                    </div>
+                    <div className={`min-w-0 ${isDeferredPaymentInvoice ? (isDark ? 'rounded-xl border border-amber-700/40 bg-amber-950/30 px-3 py-2' : 'rounded-xl border border-amber-200 bg-amber-50 px-3 py-2') : ''}`}>
+                      <div className={`text-[11px] font-semibold uppercase tracking-[0.14em] ${isDeferredPaymentInvoice ? 'text-amber-700 dark:text-amber-300' : subtleTextClass}`}>
+                        {isRTL ? 'تاريخ الاستحقاق' : 'Due Date'}
+                        {isDeferredPaymentInvoice ? (
+                          <span className="ms-1 font-normal normal-case tracking-normal opacity-80">
+                            ({isRTL ? 'موعد التحصيل' : 'collection date'})
+                          </span>
+                        ) : null}
+                      </div>
+                      <div className={`mt-1 text-sm font-semibold ${isDeferredPaymentInvoice ? 'text-amber-900 dark:text-amber-100' : (isDark ? 'text-white' : 'text-slate-900')}`}>
+                        {formatDate(normalizedInvoice.dueDate)}
+                      </div>
+                    </div>
+                    <div className="min-w-0">
+                      <div className={`text-[11px] font-semibold uppercase tracking-[0.14em] ${subtleTextClass}`}>
+                        {isRTL ? 'طريقة الدفع' : 'Payment Method'}
+                      </div>
+                      <div className={`mt-1 text-sm font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                        {normalizedInvoice.paymentMethod || '-'}
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -473,7 +539,7 @@ function SalesInvoicePreviewModal({ isOpen, onClose, invoice }) {
                             {isRTL ? 'الكمية' : 'Qty'}
                           </th>
                           <th className="px-4 py-4 text-end text-xs font-semibold uppercase tracking-[0.24em]">
-                            {isRTL ? 'سعر الوحدة' : 'Unit Price'}
+                            {isRTL ? 'المبلغ' : 'Amount'}
                           </th>
                           <th className="px-4 py-4 text-end text-xs font-semibold uppercase tracking-[0.24em]">
                             {isRTL ? 'الخصم' : 'Discount'}
@@ -488,8 +554,8 @@ function SalesInvoicePreviewModal({ isOpen, onClose, invoice }) {
                           normalizedInvoice.items.map((item, index) => {
                             const quantity = getItemQuantity(item)
                             const unitPrice = Number(item.price || item.unit_price || item.unitPrice || 0)
-                            const discount = Number(item.discount || 0)
-                            const lineTotal = (quantity * unitPrice) - discount
+                            const discount = getQuotationLineDiscountAmount(item)
+                            const lineTotal = getQuotationLineTotal(item)
 
                             return (
                               <tr key={`${item.id || item.name || 'item'}-${index}`} className={`${itemRowClass} print-light-row print-light-text print-light-border`}>
@@ -566,6 +632,49 @@ function SalesInvoicePreviewModal({ isOpen, onClose, invoice }) {
                     </table>
                   </div>
                 </div>
+
+                {installmentPlan ? (
+                  <div className={`mt-5 avoid-page-break rounded-[20px] border px-4 py-4 ${borderSoftClass} print-light-surface print-light-border`}>
+                    <div className={`text-[11px] font-semibold uppercase tracking-[0.22em] ${subtleTextClass}`}>
+                      {isRTL ? 'جدول الأقساط' : 'Installment Schedule'}
+                    </div>
+                    <div className="mt-3 overflow-hidden rounded-xl border border-slate-200 dark:border-slate-700">
+                      <table className="w-full text-sm">
+                        <thead className={isDark ? 'bg-slate-900 text-slate-300' : 'bg-slate-50 text-slate-600'}>
+                          <tr>
+                            <th className="px-3 py-2 text-start font-semibold">{isRTL ? 'القسط' : 'Installment'}</th>
+                            <th className="px-3 py-2 text-end font-semibold">{isRTL ? 'المبلغ' : 'Amount'}</th>
+                            <th className="px-3 py-2 text-start font-semibold">{isRTL ? 'تاريخ الاستحقاق' : 'Due Date'}</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(installmentPlan.schedule || []).map((row) => (
+                            <tr key={row.number} className={`border-t ${borderSoftClass}`}>
+                              <td className={`px-3 py-2 ${mainTextClass}`}>
+                                {isRTL ? `قسط ${row.number}` : `#${row.number}`}
+                              </td>
+                              <td className={`px-3 py-2 text-end font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                                {formatMoney(row.amount)}
+                              </td>
+                              <td className={`px-3 py-2 ${mainTextClass}`}>
+                                {formatDate(row.dueDate || row.due_date)}
+                              </td>
+                            </tr>
+                          ))}
+                          <tr className={`border-t font-semibold ${borderStrongClass}`}>
+                            <td className="px-3 py-2" colSpan={2}>{isRTL ? 'إجمالي الأقساط' : 'Installments total'}</td>
+                            <td className="px-3 py-2 text-end">
+                              {formatMoney(
+                                installmentPlan.total
+                                ?? (installmentPlan.schedule || []).reduce((s, r) => s + Number(r.amount || 0), 0)
+                              )}
+                            </td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ) : null}
               </div>
 
               <div className="grid gap-4 px-8 pb-8">

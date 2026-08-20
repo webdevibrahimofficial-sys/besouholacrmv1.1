@@ -657,7 +657,7 @@ export function PipelineStagesManager({ workflowKey = 'sales', title = 'Pipeline
             />
           </div>
           <div className="col-span-12 md:col-span-6 flex flex-col gap-1">
-            <span className="text-xs font-medium opacity-70">{t('Delay Time')}</span>
+            <span className="text-xs font-medium opacity-70">{t('Delay Time')} (hours)</span>
             <input
               type="number"
               min={0}
@@ -752,7 +752,7 @@ export function PipelineStagesManager({ workflowKey = 'sales', title = 'Pipeline
               <th className={`${thBase}${thTone}`}>{t('Stage Name (Arabic)')}</th>
               <th className={`${thBase}${thTone}`}>{t('Stage Type')}</th>
               <th className={`${thBase}${thTone}`}>{t('Notify Time')}</th>
-              <th className={`${thBase}${thTone}`}>{t('Delay Time')}</th>
+              <th className={`${thBase}${thTone}`}>{t('Delay Time')} (hours)</th>
               <th className={`${thBase}${thTone}`}>{t('Stage Color')}</th>
               <th className={`${thBase}${thTone}`}>{t('Stage Icon')}</th>
               <th className={`${thBase}${thTone}`}>{t('Actions')}</th>

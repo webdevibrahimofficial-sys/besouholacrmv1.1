@@ -19,6 +19,7 @@ import SalesOrdersFormModal from '../components/SalesOrdersFormModal'
 
 import { useDynamicFields } from '../hooks/useDynamicFields'
 import { getSourceCanonicalName, getSourceDisplayName } from '../shared/utils/sourceDisplay'
+import { pickAttachmentFile, uploadDocumentAttachments } from '../shared/utils/uploadDocumentAttachments'
 import * as XLSX from 'xlsx'
 
 export const Customers = () => {
@@ -100,6 +101,7 @@ export const Customers = () => {
   const [openDropdownAbove, setOpenDropdownAbove] = useState(false)
   const [usersList, setUsersList] = useState([])
   const [sourcesCatalog, setSourcesCatalog] = useState([])
+  const [customerCodesCatalog, setCustomerCodesCatalog] = useState([])
   const openedDeepLinkRef = useRef(null)
 
   // Notes Modal State (Removed)
@@ -116,6 +118,7 @@ export const Customers = () => {
   // Filters
   const [q, setQ] = useState('') // Main search query
   const [filters, setFilters] = useState({
+    customerCode: '',
     type: '',
     source: '',
     country: '',
@@ -170,6 +173,35 @@ export const Customers = () => {
     setTimeout(() => setSuccessMessage(''), 3000)
   }
 
+  const resolveCreatedByName = (item, users = usersList) => {
+    const direct = String(
+      item?.createdBy
+      || item?.created_by
+      || item?.creator?.name
+      || item?.created_by_name
+      || item?.creator_name
+      || ''
+    ).trim()
+    if (!direct) return ''
+    if (/^\d+$/.test(direct) && Array.isArray(users) && users.length > 0) {
+      const match = users.find((u) => String(u?.id) === direct)
+      if (match?.name) return String(match.name).trim()
+    }
+    return direct
+  }
+
+  const mapCustomerRow = (item, users = usersList) => ({
+    ...item,
+    customerCode: item.customer_code ?? item.customerCode,
+    companyName: item.company_name ?? item.companyName,
+    taxNumber: item.tax_number ?? item.taxNumber,
+    address: item.address ?? item.addressLine ?? '',
+    addressLine: item.addressLine ?? item.address ?? '',
+    assignedSalesRep: item.assignee?.name || item.assignedSalesRep || item.assigned_to,
+    createdBy: resolveCreatedByName(item, users),
+    createdAt: item.created_at ?? item.createdAt
+  })
+
   // Load Data (server-side filters)
   const load = async () => {
     try {
@@ -181,6 +213,7 @@ export const Customers = () => {
       params.set('sort_order', sortOrder)
       params.set('page', currentPage)
       if (q) params.set('q', q)
+      if (filters.customerCode) params.set('customer_code', filters.customerCode)
       if (filters.type) params.set('type', filters.type)
       if (filters.source) params.set('source', filters.source)
       if (filters.country) params.set('country', filters.country)
@@ -194,16 +227,7 @@ export const Customers = () => {
 
       const { data } = await api.get(`/api/customers?${params.toString()}`)
       // Map backend snake_case to frontend camelCase
-      const mappedItems = (data?.data || data || []).map(item => ({
-        ...item,
-        customerCode: item.customer_code,
-        companyName: item.company_name,
-        taxNumber: item.tax_number,
-        addressLine: item.address,
-        assignedSalesRep: item.assignee?.name || item.assigned_to,
-        createdBy: item.created_by,
-        createdAt: item.created_at
-      }))
+      const mappedItems = (data?.data || data || []).map((item) => mapCustomerRow(item))
       setItems(mappedItems)
     } catch (e) {
       console.error(e)
@@ -246,6 +270,23 @@ export const Customers = () => {
     }
     fetchSources()
   }, [])
+
+  useEffect(() => {
+    if (!canViewCustomersModule) return
+    const fetchCustomerCodes = async () => {
+      try {
+        const res = await api.get('/api/customers', { params: { all: 1 } })
+        const raw = res.data?.data || res.data || []
+        const codes = (Array.isArray(raw) ? raw : [])
+          .map((item) => String(item.customer_code || item.customerCode || '').trim())
+          .filter(Boolean)
+        setCustomerCodesCatalog([...new Set(codes)].sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })))
+      } catch {
+        setCustomerCodesCatalog([])
+      }
+    }
+    fetchCustomerCodes()
+  }, [canViewCustomersModule])
   const isFirstRender = useRef(true)
 
   useEffect(() => {
@@ -253,6 +294,21 @@ export const Customers = () => {
       load()
     }
   }, [canViewCustomersModule])
+
+  // Re-resolve creator names once users catalog is available (handles numeric created_by)
+  useEffect(() => {
+    if (!usersList.length || !items.length) return
+    setItems((prev) => {
+      let changed = false
+      const next = prev.map((item) => {
+        const resolved = resolveCreatedByName(item, usersList)
+        if (!resolved || resolved === item.createdBy) return item
+        changed = true
+        return { ...item, createdBy: resolved }
+      })
+      return changed ? next : prev
+    })
+  }, [usersList])
 
   // Refetch on filters/pagination/sorting changes
   useEffect(() => {
@@ -288,6 +344,11 @@ export const Customers = () => {
       }
 
       // Filters
+      if (filters.customerCode) {
+        const selectedCode = String(filters.customerCode).trim().toLowerCase()
+        const code = String(item.customerCode || item.customer_code || '').trim().toLowerCase()
+        if (code !== selectedCode) return false
+      }
       if (filters.type && item.type !== filters.type) return false
       if (filters.source && item.source !== filters.source) return false
       if (filters.country && item.country !== filters.country) return false
@@ -400,16 +461,7 @@ export const Customers = () => {
           data = res2.data
         }
 
-        const mapped = {
-          ...data,
-          customerCode: data?.customer_code,
-          companyName: data?.company_name,
-          taxNumber: data?.tax_number,
-          addressLine: data?.address,
-          assignedSalesRep: data?.assignee?.name || data?.assigned_to,
-          createdBy: data?.created_by,
-          createdAt: data?.created_at
-        }
+        const mapped = mapCustomerRow(data)
 
         handlePreviewCustomer(mapped)
       } catch (e) {
@@ -557,38 +609,26 @@ export const Customers = () => {
         address: customerData.addressLine,
         assigned_to: customerData.assignedSalesRep || undefined,
         notes: customerData.notes,
-        created_by: customerData.createdBy || user?.name || 'Admin',
         custom_fields: customerData.custom_fields
+      }
+      if (!editingItem) {
+        payload.created_by = customerData.createdBy || user?.name || 'Admin'
       }
 
       if (editingItem) {
         // Edit
         const { data } = await api.put(`/api/customers/${editingItem.id}`, payload)
-        const updatedItem = {
+        const updatedItem = mapCustomerRow({
           ...data,
-          customerCode: data.customer_code,
-          companyName: data.company_name,
-          taxNumber: data.tax_number,
-          addressLine: data.address,
-          assignedSalesRep: data.assignee?.name || data.assigned_to,
-          createdBy: data.created_by,
-          createdAt: data.created_at
-        }
+          // Preserve original creator on edit (backend update may not return it changed)
+          created_by: data.created_by || editingItem.createdBy,
+        })
         setItems(prev => prev.map(item => item.id === editingItem.id ? updatedItem : item))
         showSuccess(isRTL ? 'تم تحديث بيانات العميل' : 'Customer updated successfully')
       } else {
         // Add
         const { data } = await api.post('/api/customers', payload)
-        const newItem = {
-          ...data,
-          customerCode: data.customer_code,
-          companyName: data.company_name,
-          taxNumber: data.tax_number,
-          addressLine: data.address,
-          assignedSalesRep: data.assignee?.name || data.assigned_to,
-          createdBy: data.created_by,
-          createdAt: data.created_at
-        }
+        const newItem = mapCustomerRow(data)
         setItems(prev => [newItem, ...prev])
         showSuccess(isRTL ? 'تم إضافة العميل بنجاح' : 'Customer added successfully')
       }
@@ -619,6 +659,7 @@ export const Customers = () => {
   }
 
   const handleSaveQuotation = async (data) => {
+    const attachmentFile = pickAttachmentFile(data?.attachment)
     try {
       setLoading(true)
       const payload = {
@@ -637,7 +678,18 @@ export const Customers = () => {
         notes: data.notes,
         sales_person: data.salesPerson
       }
-      await api.post('/api/quotations', payload)
+      const res = await api.post('/api/quotations', payload)
+      const quotationId = res?.data?.id
+      if (attachmentFile && quotationId) {
+        try {
+          await uploadDocumentAttachments(api, `/api/quotations/${quotationId}/attachments`, attachmentFile)
+        } catch (uploadError) {
+          console.error('Failed to upload quotation attachment:', uploadError)
+          alert(isRTL
+            ? 'تم حفظ عرض السعر لكن فشل رفع المرفق'
+            : 'Quotation saved but attachment upload failed')
+        }
+      }
       setShowQuotationModal(false)
       setTargetCustomer(null)
       showSuccess(isRTL ? 'تم إضافة عرض السعر بنجاح' : 'Quotation added successfully')
@@ -658,6 +710,7 @@ export const Customers = () => {
   }
 
   const handleSaveSalesOrder = async (data) => {
+    const attachmentFile = pickAttachmentFile(data?.attachment)
     try {
       setLoading(true)
       const payload = {
@@ -676,7 +729,18 @@ export const Customers = () => {
         discount_rate: data.discountRate,
         notes: data.notes
       }
-      await api.post('/api/sales-orders', payload)
+      const res = await api.post('/api/sales-orders', payload)
+      const orderId = res?.data?.id
+      if (attachmentFile && orderId) {
+        try {
+          await uploadDocumentAttachments(api, `/api/sales-orders/${orderId}/attachments`, attachmentFile)
+        } catch (uploadError) {
+          console.error('Failed to upload sales order attachment:', uploadError)
+          alert(isRTL
+            ? 'تم حفظ طلب البيع لكن فشل رفع المرفق'
+            : 'Sales order saved but attachment upload failed')
+        }
+      }
       setShowSalesOrderModal(false)
       setTargetCustomer(null)
       showSuccess(isRTL ? 'تم إضافة طلب البيع بنجاح' : 'Sales Order added successfully')
@@ -700,10 +764,22 @@ export const Customers = () => {
 
   // Options for filters
   const typeOptions = useMemo(() => [...new Set(items.map(i => i.type).filter(Boolean))], [items])
-  const sourceOptions = useMemo(() => Array.from(new Set([
-    ...(sourcesCatalog || []).map((source) => getSourceCanonicalName(source)).filter(Boolean),
-    ...items.map((item) => String(item?.source || '').trim()).filter(Boolean),
-  ])), [items, sourcesCatalog])
+  const customerCodeOptions = useMemo(() => {
+    const codes = [
+      ...customerCodesCatalog,
+      ...items.map((item) => String(item.customerCode || item.customer_code || '').trim()).filter(Boolean),
+    ]
+    const selected = String(filters.customerCode || '').trim()
+    if (selected) codes.push(selected)
+    return [...new Set(codes)].sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }))
+  }, [customerCodesCatalog, items, filters.customerCode])
+  const sourceOptions = useMemo(() => {
+    const placeholders = new Set(['converted request', 'converted from request', 'real estate request'])
+    return Array.from(new Set([
+      ...(sourcesCatalog || []).map((source) => getSourceCanonicalName(source)).filter(Boolean),
+      ...items.map((item) => String(item?.source || '').trim()).filter(Boolean),
+    ])).filter((value) => !placeholders.has(String(value).trim().toLowerCase()))
+  }, [items, sourcesCatalog])
   const countryOptions = useMemo(() => [...new Set(items.map(i => i.country).filter(Boolean))], [items])
   const repOptions = useMemo(() => [...new Set(usersList.map(u => u.name).filter(Boolean))], [usersList])
   const createdByOptions = useMemo(() => [...new Set(usersList.map(u => u.name).filter(Boolean))], [usersList])
@@ -711,6 +787,7 @@ export const Customers = () => {
   const clearFilters = () => {
     setQ('')
     setFilters({
+      customerCode: '',
       type: '',
       source: '',
       country: '',
@@ -774,6 +851,7 @@ export const Customers = () => {
       TaxNumber: item.taxNumber,
       Country: item.country,
       City: item.city,
+      Address: item.addressLine || item.address || '',
       SalesRep: item.assignedSalesRep,
       CreatedBy: item.createdBy,
       CreatedAt: new Date(item.createdAt).toLocaleDateString(),
@@ -808,6 +886,7 @@ export const Customers = () => {
       TaxNumber: item.taxNumber,
       Country: item.country,
       City: item.city,
+      Address: item.addressLine || item.address || '',
       SalesRep: item.assignedSalesRep,
       CreatedBy: item.createdBy,
       CreatedAt: new Date(item.createdAt).toLocaleDateString(),
@@ -915,7 +994,7 @@ export const Customers = () => {
         </div>
 
         {/* Primary Filters Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3">
           {/* 1. SEARCH BY ALL DATA */}
           <div className="space-y-1">
             <label className="text-xs font-medium text-[var(--muted-text)] flex items-center gap-1">
@@ -929,7 +1008,22 @@ export const Customers = () => {
             />
           </div>
 
-          {/* 2. TYPE */}
+          {/* 2. CUSTOMER CODE */}
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-[var(--muted-text)]">
+              {isRTL ? 'كود العميل' : 'Customer Code'}
+            </label>
+            <SearchableSelect
+              options={customerCodeOptions.map(o => ({ value: o, label: o }))}
+              value={filters.customerCode}
+              onChange={(v) => setFilters(prev => ({ ...prev, customerCode: v || '' }))}
+              placeholder={isRTL ? 'اختر كود العميل' : 'Select Customer Code'}
+              className="w-full"
+              isRTL={isRTL}
+            />
+          </div>
+
+          {/* 3. TYPE */}
           <div className="space-y-1">
             <label className="text-xs font-medium text-[var(--muted-text)]">
               {isRTL ? 'النوع' : 'Type'}
@@ -944,7 +1038,7 @@ export const Customers = () => {
             />
           </div>
 
-          {/* 3. SALES PERSONS (Multi-select) */}
+          {/* 4. SALES PERSONS (Multi-select) */}
           <div className="space-y-1">
             <label className="text-xs font-medium text-[var(--muted-text)]">
               {isRTL ? 'مسؤول المبيعات' : 'Sales Persons'}
@@ -960,7 +1054,7 @@ export const Customers = () => {
             />
           </div>
 
-          {/* 4. CREATED BY */}
+          {/* 5. CREATED BY */}
           <div className="space-y-1">
             <label className="text-xs font-medium text-[var(--muted-text)]">
               {isRTL ? 'تم الإنشاء بواسطة' : 'Created By'}
@@ -1140,10 +1234,13 @@ export const Customers = () => {
                 <th onClick={() => handleSort('city')} className="p-4 cursor-pointer hover:text-blue-600 whitespace-nowrap transition-colors">
                   {isRTL ? 'المدينة' : 'City'}
                 </th>
+                <th onClick={() => handleSort('addressLine')} className="p-4 cursor-pointer hover:text-blue-600 whitespace-nowrap transition-colors min-w-[160px]">
+                  {isRTL ? 'العنوان' : 'Address'}
+                </th>
                 <th onClick={() => handleSort('assignedSalesRep')} className="p-4 cursor-pointer hover:text-blue-600 whitespace-nowrap transition-colors">
                   {isRTL ? 'مسؤول المبيعات' : 'Sales Rep'}
                 </th>
-                <th onClick={() => handleSort('createdBy')} className="p-4 cursor-pointer hover:text-blue-600 whitespace-nowrap transition-colors">
+                <th onClick={() => handleSort('createdBy')} className="p-4 cursor-pointer hover:text-blue-600 whitespace-nowrap transition-colors min-w-[140px]">
                   {isRTL ? 'تم الإنشاء بواسطة' : 'Created By'}
                 </th>
                 <th onClick={() => handleSort('createdAt')} className="p-4 cursor-pointer hover:text-blue-600 whitespace-nowrap transition-colors">
@@ -1165,7 +1262,7 @@ export const Customers = () => {
             <tbody className="divide-y divide-white/10 dark:divide-gray-700/50 text-sm">
               {paginatedItems.length === 0 ? (
                 <tr>
-                  <td colSpan="15" className={`p-8 text-center ${isLight ? 'text-black' : 'text-white'}`}>
+                  <td colSpan={16 + dynamicFields.length} className={`p-8 text-center ${isLight ? 'text-black' : 'text-white'}`}>
                     {isRTL ? 'لا توجد بيانات' : 'No data available'}
                   </td>
                 </tr>
@@ -1236,6 +1333,9 @@ export const Customers = () => {
                     <td className={`p-4 whitespace-nowrap ${isLight ? 'text-black' : 'text-white'}`}>
                       {item.city}
                     </td>
+                    <td className={`p-4 max-w-[220px] truncate ${isLight ? 'text-black' : 'text-white'}`} title={item.addressLine || item.address || ''}>
+                      {item.addressLine || item.address || '—'}
+                    </td>
                     <td className={`p-4 whitespace-nowrap ${isLight ? 'text-black' : 'text-white'}`}>
                       <div className="flex items-center gap-2">
                         <div className="w-6 h-6 rounded-full bg-blue-100 dark:bg-blue-800 text-blue-600 dark:text-blue-200 flex items-center justify-center text-xs font-bold">
@@ -1244,8 +1344,8 @@ export const Customers = () => {
                         {item.assignedSalesRep}
                       </div>
                     </td>
-                    <td className={`p-4 whitespace-nowrap ${isLight ? 'text-black' : 'text-white'}`}>
-                      {item.createdBy}
+                    <td className={`p-4 whitespace-nowrap min-w-[140px] ${isLight ? 'text-black' : 'text-white'}`}>
+                      {resolveCreatedByName(item) || '—'}
                     </td>
                     <td className={`p-4 whitespace-nowrap ${isLight ? 'text-black' : 'text-white'}`} dir="ltr">
                       {new Date(item.createdAt).toLocaleDateString()}
@@ -1289,18 +1389,6 @@ export const Customers = () => {
                             <span className="hidden xl:inline">{isRTL ? 'تعديل' : 'Edit'}</span>
                           </button>
                         )}
-                        {canDeleteCustomer && (
-                          <button 
-                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-900/20 dark:text-red-400 dark:hover:bg-red-900/40 transition-colors shadow-sm" 
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleDelete(item.id)
-                            }}
-                          >
-                            <FaTrash size={14} />
-                            <span className="hidden xl:inline">{isRTL ? 'حذف' : 'Delete'}</span>
-                          </button>
-                        )}
 
                         {/* Dropdown for More Actions (matching Sales Orders) */}
                         <div className="relative" onClick={(e) => e.stopPropagation()}>
@@ -1311,7 +1399,7 @@ export const Customers = () => {
                               if (opening) {
                                 const r = e.currentTarget.getBoundingClientRect()
                                 const vh = window.innerHeight
-                                const mh = 180 // approximate menu height
+                                const mh = 220 // approximate menu height
                                 const spaceBelow = vh - r.bottom
                               const spaceAbove = r.top
                               // Open above if no space below AND space above exists
@@ -1370,6 +1458,19 @@ export const Customers = () => {
                                     <FaShoppingCart size={14} className="text-purple-500" />
                                     <span className="font-medium">{isRTL ? 'أمر بيع' : 'Sales Order'}</span>
                                   </button>
+                                  {canDeleteCustomer && (
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        handleDelete(item.id)
+                                        setOpenDropdownId(null)
+                                      }}
+                                      className="w-full text-start px-4 py-2 text-sm flex items-center gap-2 hover:bg-red-50 dark:hover:bg-red-900/20 text-red-600 border-t border-gray-100 dark:border-gray-700"
+                                    >
+                                      <FaTrash size={14} />
+                                      <span className="font-medium">{isRTL ? 'حذف' : 'Delete'}</span>
+                                    </button>
+                                  )}
                                 </div>
                               </div>
                             </>,
@@ -1434,6 +1535,16 @@ export const Customers = () => {
                     }`}>
                       {localizeSourceLabel(item.source)}
                     </span>
+                  </div>
+                  {(item.addressLine || item.address) && (
+                    <div className={`flex items-center gap-2 text-sm ${isLight ? 'text-black' : 'text-white'}`}>
+                      <span className="text-[var(--muted-text)]">{isRTL ? 'العنوان:' : 'Address:'}</span>
+                      <span className="truncate">{item.addressLine || item.address}</span>
+                    </div>
+                  )}
+                  <div className={`flex items-center gap-2 text-sm ${isLight ? 'text-black' : 'text-white'}`}>
+                    <span className="text-[var(--muted-text)]">{isRTL ? 'بواسطة:' : 'Created by:'}</span>
+                    <span>{resolveCreatedByName(item) || '—'}</span>
                   </div>
                 </div>
 

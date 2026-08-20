@@ -24,7 +24,7 @@ const CustomersFormModal = ({ isOpen, onClose, onSave, initialData = null, isRTL
     phoneNumber: '',
     email: '',
     type: 'Individual',
-    source: 'New',
+    source: '',
     companyName: '',
     taxNumber: '',
     country: '',
@@ -75,12 +75,12 @@ const CustomersFormModal = ({ isOpen, onClose, onSave, initialData = null, isRTL
         phoneNumber,
         email: initialData.email || '',
         type: initialData.type || 'Individual',
-        source: initialData.source || 'New',
+        source: initialData.source || '',
         companyName: initialData.companyName || '',
         taxNumber: initialData.taxNumber || '',
         country: initialData.country || crmSettings?.defaultCountryCode || '',
         city: initialData.city || '',
-        addressLine: initialData.addressLine || '',
+        addressLine: initialData.addressLine || initialData.address || '',
         assignedSalesRep: initialData.assignedSalesRep || '',
         notes: initialData.notes || ''
       }))
@@ -92,7 +92,7 @@ const CustomersFormModal = ({ isOpen, onClose, onSave, initialData = null, isRTL
         phoneNumber: '',
         email: '',
         type: 'Individual',
-        source: 'New',
+        source: '',
         companyName: '',
         taxNumber: '',
         country: crmSettings?.defaultCountryCode || '',
@@ -148,6 +148,9 @@ const CustomersFormModal = ({ isOpen, onClose, onSave, initialData = null, isRTL
       if (!check.isValid) {
         newErrors.phone = isRTL ? check.messageAr : check.message;
       }
+    }
+    if (!String(formData.source || '').trim()) {
+      newErrors.source = isRTL ? 'المصدر مطلوب' : 'Source is required'
     }
     
     // Email validation
@@ -316,14 +319,20 @@ const CustomersFormModal = ({ isOpen, onClose, onSave, initialData = null, isRTL
             </div>
 
             <div>
-              <label className={labelClass}>{isRTL ? 'المصدر' : 'Source'}</label>
+              <label className={labelClass}>
+                {isRTL ? 'المصدر' : 'Source'} <span className="text-red-500">*</span>
+              </label>
               <SearchableSelect
                 options={sourceOptions}
                 value={formData.source}
-                onChange={v => setFormData({...formData, source: v || 'New'})}
+                onChange={v => {
+                  setFormData({...formData, source: v || ''})
+                  if (errors.source) setErrors(prev => ({ ...prev, source: undefined }))
+                }}
                 placeholder={isRTL ? 'اختر المصدر' : 'Select Source'}
-                className="w-full"
+                className={`w-full ${errors.source ? 'border-red-500' : ''}`}
               />
+              {errors.source && <p className={errorClass}>{errors.source}</p>}
             </div>
 
             <div>
@@ -371,72 +380,83 @@ const CustomersFormModal = ({ isOpen, onClose, onSave, initialData = null, isRTL
           <div className={`h-px w-full ${isDark ? 'bg-gray-800' : 'bg-gray-100'}`} />
 
           {/* Section 3: Address */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div>
-              <div className="flex items-center justify-between">
-                <label className={labelClass}>{isRTL ? 'الدولة' : 'Country'}</label>
-                <button type="button" className="text-xs text-blue-600" onClick={() => setManualCountry(v => !v)}>
-                  {manualCountry ? (isRTL ? 'استخدم القائمة' : 'Use list') : (isRTL ? 'اكتب يدويًا' : 'Type manually')}
-                </button>
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <div className="flex items-center justify-between">
+                  <label className={labelClass}>{isRTL ? 'الدولة' : 'Country'}</label>
+                  <button type="button" className="text-xs text-blue-600" onClick={() => setManualCountry(v => !v)}>
+                    {manualCountry ? (isRTL ? 'استخدم القائمة' : 'Use list') : (isRTL ? 'اكتب يدويًا' : 'Type manually')}
+                  </button>
+                </div>
+                {manualCountry ? (
+                  <div className="relative">
+                    <FaGlobe className={`absolute ${isRTL ? 'right-3' : 'left-3'} top-3 text-theme-text`} />
+                    <input
+                      type="text"
+                      value={formData.country}
+                      onChange={e => setFormData({ ...formData, country: e.target.value })}
+                      className={`${inputClass} ${isRTL ? 'pr-10' : 'pl-10'}`}
+                      placeholder={isRTL ? 'الدولة' : 'Country'}
+                    />
+                  </div>
+                ) : (
+                  <SearchableSelect
+                    options={countryOptions}
+                    value={formData.country}
+                    onChange={async (v) => {
+                      setFormData({ ...formData, country: v || '' , city: '' })
+                      try {
+                        const ciRes = await api.get('/api/cities', { params: { country_name: v || '' } })
+                        const ciData = ciRes.data?.data || ciRes.data || []
+                        setCities(Array.isArray(ciData) ? ciData : [])
+                      } catch (e) {}
+                    }}
+                    placeholder={isRTL ? 'اختر الدولة' : 'Select Country'}
+                    className="w-full"
+                    isRTL={isRTL}
+                  />
+                )}
               </div>
-              {manualCountry ? (
-                <div className="relative">
-                  <FaGlobe className={`absolute ${isRTL ? 'right-3' : 'left-3'} top-3 text-theme-text`} />
+
+              <div>
+                <div className="flex items-center justify-between">
+                  <label className={labelClass}>{isRTL ? 'المدينة' : 'City'}</label>
+                  <button type="button" className="text-xs text-blue-600" onClick={() => setManualCity(v => !v)}>
+                    {manualCity ? (isRTL ? 'استخدم القائمة' : 'Use list') : (isRTL ? 'اكتب يدويًا' : 'Type manually')}
+                  </button>
+                </div>
+                {manualCity ? (
                   <input
                     type="text"
-                    value={formData.country}
-                    onChange={e => setFormData({ ...formData, country: e.target.value })}
-                    className={`${inputClass} ${isRTL ? 'pr-10' : 'pl-10'}`}
-                    placeholder={isRTL ? 'الدولة' : 'Country'}
+                    value={formData.city}
+                    onChange={e => setFormData({ ...formData, city: e.target.value })}
+                    className={inputClass}
+                    placeholder={isRTL ? 'المدينة' : 'City'}
                   />
-                </div>
-              ) : (
-                <SearchableSelect
-                  options={countryOptions}
-                  value={formData.country}
-                  onChange={async (v) => {
-                    setFormData({ ...formData, country: v || '' , city: '' })
-                    try {
-                      const ciRes = await api.get('/api/cities', { params: { country_name: v || '' } })
-                      const ciData = ciRes.data?.data || ciRes.data || []
-                      setCities(Array.isArray(ciData) ? ciData : [])
-                    } catch (e) {}
-                  }}
-                  placeholder={isRTL ? 'اختر الدولة' : 'Select Country'}
-                  className="w-full"
-                  isRTL={isRTL}
-                />
-              )}
-            </div>
-            
-            <div>
-              <div className="flex items-center justify-between">
-                <label className={labelClass}>{isRTL ? 'المدينة' : 'City'}</label>
-                <button type="button" className="text-xs text-blue-600" onClick={() => setManualCity(v => !v)}>
-                  {manualCity ? (isRTL ? 'استخدم القائمة' : 'Use list') : (isRTL ? 'اكتب يدويًا' : 'Type manually')}
-                </button>
+                ) : (
+                  <SearchableSelect
+                    options={cityOptions}
+                    value={formData.city}
+                    onChange={v => setFormData({ ...formData, city: v || '' })}
+                    placeholder={isRTL ? 'اختر المدينة' : 'Select City'}
+                    className="w-full"
+                    isRTL={isRTL}
+                  />
+                )}
               </div>
-              {manualCity ? (
-                <input
-                  type="text"
-                  value={formData.city}
-                  onChange={e => setFormData({ ...formData, city: e.target.value })}
-                  className={inputClass}
-                  placeholder={isRTL ? 'المدينة' : 'City'}
-                />
-              ) : (
-                <SearchableSelect
-                  options={cityOptions}
-                  value={formData.city}
-                  onChange={v => setFormData({ ...formData, city: v || '' })}
-                  placeholder={isRTL ? 'اختر المدينة' : 'Select City'}
-                  className="w-full"
-                  isRTL={isRTL}
-                />
-              )}
             </div>
 
-
+            <div>
+              <label className={labelClass}>{isRTL ? 'العنوان' : 'Address'}</label>
+              <textarea
+                value={formData.addressLine}
+                onChange={e => setFormData({ ...formData, addressLine: e.target.value })}
+                className={`${inputClass} min-h-[80px] py-3`}
+                placeholder={isRTL ? 'الشارع، الحي، رقم المبنى...' : 'Street, district, building no...'}
+                maxLength={255}
+              />
+            </div>
           </div>
 
           <div className={`h-px w-full ${isDark ? 'bg-gray-800' : 'bg-gray-100'}`} />

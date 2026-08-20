@@ -6,6 +6,7 @@ use App\Models\Lead;
 use App\Models\RotationRule;
 use App\Models\RotationSetting;
 use App\Models\RotationState;
+use App\Models\Stage;
 use App\Models\Tenant;
 use App\Models\User;
 use Illuminate\Support\Facades\Schema;
@@ -407,6 +408,83 @@ class LeadRotationEngine
             $lead->sales_person = null;
         }
         $lead->save();
+    }
+
+    /**
+     * Delay rotation threshold in hours for the lead's current stage.
+     * Prefer stage_id, then name/name_ar, then stage type.
+     * Tenant-specific stages win over shared/global ones.
+     */
+    public function resolveStageDelayHours(Lead $lead, int $tenantId, $stages = null): int
+    {
+        if (!Schema::hasColumn('stages', 'delay_time')) {
+            return 0;
+        }
+
+        if ($stages === null) {
+            $stages = Stage::query()
+                ->withoutGlobalScope('tenant')
+                ->where(function ($q) use ($tenantId) {
+                    $q->whereNull('tenant_id')->orWhere('tenant_id', $tenantId);
+                })
+                ->orderByRaw('case when tenant_id is null then 1 else 0 end')
+                ->orderByDesc('id')
+                ->get(['id', 'tenant_id', 'name', 'name_ar', 'type', 'delay_time']);
+        }
+
+        $list = collect($stages)->values();
+        if ($list->isEmpty()) {
+            return 0;
+        }
+
+        // Prefer tenant rows over shared/global rows when both match.
+        $list = $list->sortBy(function ($stage) use ($tenantId) {
+            $rowTenant = $stage->tenant_id ?? null;
+            if ((int) $rowTenant === (int) $tenantId) {
+                return 0;
+            }
+            if ($rowTenant === null || $rowTenant === '') {
+                return 1;
+            }
+            return 2;
+        })->values();
+
+        $stageId = !empty($lead->stage_id) ? (int) $lead->stage_id : null;
+        if ($stageId) {
+            $byId = $list->first(fn ($stage) => (int) ($stage->id ?? 0) === $stageId);
+            if ($byId) {
+                return max(0, (int) ($byId->delay_time ?? 0));
+            }
+        }
+
+        $leadStageKey = $this->normalizeStageKey($lead->stage ?? '');
+        if ($leadStageKey !== '') {
+            foreach ($list as $stage) {
+                $nameKey = $this->normalizeStageKey($stage->name ?? '');
+                $nameArKey = $this->normalizeStageKey($stage->name_ar ?? '');
+                $typeKey = $this->normalizeStageKey($stage->type ?? '');
+                if (
+                    ($nameKey !== '' && $nameKey === $leadStageKey)
+                    || ($nameArKey !== '' && $nameArKey === $leadStageKey)
+                    || ($typeKey !== '' && $typeKey === $leadStageKey)
+                ) {
+                    return max(0, (int) ($stage->delay_time ?? 0));
+                }
+            }
+        }
+
+        return 0;
+    }
+
+    private function normalizeStageKey($value): string
+    {
+        $s = strtolower(trim((string) ($value ?? '')));
+        if ($s === '') {
+            return '';
+        }
+        $s = str_replace(['_', '-'], ' ', $s);
+        $s = preg_replace('/\s+/', ' ', $s);
+        return trim((string) $s);
     }
 
     private function normalizeSource($source): ?string

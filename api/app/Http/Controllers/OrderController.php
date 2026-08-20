@@ -142,7 +142,63 @@ class OrderController extends Controller
             $order->save();
         }
 
+        // Converting a quotation → order should mark the quotation Approved
+        // (same status vocabulary as Customers QuotationsFormModal).
+        $this->markLinkedQuotationApproved($validated['quotation_id'] ?? null);
+
         return response()->json($order->load('lines'), 201);
+    }
+
+    /**
+     * When an order is created from a quotation, mark that quotation Approved
+     * (module statuses: Draft / Sent / Approved / Rejected).
+     */
+    public function markLinkedQuotationApproved(null|string|int $quotationId): void
+    {
+        $quotationId = trim((string) ($quotationId ?? ''));
+        if ($quotationId === '') {
+            return;
+        }
+
+        $quotationQuery = \App\Models\Quotation::query();
+        if (Auth::user()?->tenant_id) {
+            $quotationQuery->where('tenant_id', Auth::user()->tenant_id);
+        }
+
+        $quotation = $quotationQuery
+            ->where(function ($q) use ($quotationId) {
+                $q->where('id', $quotationId);
+                if (ctype_digit($quotationId)) {
+                    $q->orWhere('id', (int) $quotationId);
+                }
+            })
+            ->first();
+
+        if (! $quotation) {
+            return;
+        }
+
+        $current = strtolower(trim((string) ($quotation->status ?? '')));
+        if (in_array($current, ['approved', 'converted', 'accepted', 'rejected', 'lost', 'cancelled', 'canceled'], true)) {
+            // Normalize legacy Converted → Approved for UI consistency
+            if (in_array($current, ['converted', 'accepted'], true)) {
+                $quotation->status = 'Approved';
+                $quotation->save();
+            }
+
+            return;
+        }
+
+        $quotation->status = 'Approved';
+        $quotation->save();
+    }
+
+    /**
+     * @deprecated Use markLinkedQuotationApproved
+     */
+    public function markLinkedQuotationConverted(null|string|int $quotationId): void
+    {
+        $this->markLinkedQuotationApproved($quotationId);
     }
 
     /**
@@ -232,31 +288,42 @@ class OrderController extends Controller
 
     public function attachmentsIndex(Order $order)
     {
-        $meta = is_array($order->meta_data) ? $order->meta_data : [];
-        $attachments = $meta['attachments'] ?? [];
-        return response()->json(array_values($attachments));
+        return response()->json($this->normalizedOrderAttachments($order));
     }
 
     public function attachmentsStore(Request $request, Order $order)
     {
-        $request->validate([
-            'files' => 'required|array',
-            'files.*' => 'file|max:10240',
-        ]);
+        $files = $this->collectUploadedFiles($request);
+        if (!$files) {
+            return response()->json([
+                'message' => 'No files uploaded',
+                'errors' => ['files' => ['No files uploaded']],
+            ], 422);
+        }
 
-        $meta = is_array($order->meta_data) ? $order->meta_data : [];
+        foreach ($files as $file) {
+            if ($file->getSize() > 10240 * 1024) {
+                return response()->json([
+                    'message' => 'File too large',
+                    'errors' => ['files' => ['Each file must be 10MB or smaller']],
+                ], 422);
+            }
+        }
+
+        $meta = $this->decodeOrderMeta($order->meta_data);
         $attachments = is_array($meta['attachments'] ?? null) ? $meta['attachments'] : [];
 
-        foreach ($request->file('files', []) as $file) {
+        foreach ($files as $file) {
             $id = (string) Str::uuid();
             $original = $file->getClientOriginalName();
             $ext = $file->getClientOriginalExtension();
             $safeBase = pathinfo($original, PATHINFO_FILENAME);
-            $safeBase = preg_replace('/[^A-Za-z0-9_\-]+/', '_', $safeBase) ?: 'file';
+            $safeBase = preg_replace('/[^A-Za-z0-9_\-]+/', '_', (string) $safeBase) ?: 'file';
             $filename = $safeBase . '_' . $id . ($ext ? ('.' . $ext) : '');
 
+            $tenantId = $order->tenant_id ?: (app()->bound('current_tenant_id') ? app('current_tenant_id') : 'shared');
             $path = $file->storeAs(
-                "tenants/{$order->tenant_id}/orders/{$order->id}/attachments",
+                "tenants/{$tenantId}/orders/{$order->id}/attachments",
                 $filename,
                 'public'
             );
@@ -265,23 +332,23 @@ class OrderController extends Controller
                 'id' => $id,
                 'name' => $original,
                 'path' => $path,
-                'url' => asset('storage/' . ltrim($path, '/')),
+                'url' => asset('storage/' . ltrim((string) $path, '/')),
                 'size' => $file->getSize(),
                 'mime' => $file->getMimeType(),
                 'created_at' => now()->toISOString(),
             ];
         }
 
-        $meta['attachments'] = $attachments;
+        $meta['attachments'] = array_values($attachments);
         $order->meta_data = $meta;
         $order->save();
 
-        return response()->json(array_values($attachments));
+        return response()->json($this->normalizedOrderAttachments($order->fresh()));
     }
 
     public function attachmentsDestroy(Order $order, string $attachmentId)
     {
-        $meta = is_array($order->meta_data) ? $order->meta_data : [];
+        $meta = $this->decodeOrderMeta($order->meta_data);
         $attachments = is_array($meta['attachments'] ?? null) ? $meta['attachments'] : [];
 
         $kept = [];
@@ -343,5 +410,47 @@ class OrderController extends Controller
         } catch (\Throwable $e) {
             return now();
         }
+    }
+
+    private function decodeOrderMeta(mixed $value): array
+    {
+        if (is_array($value)) {
+            return $value;
+        }
+
+        if (is_string($value) && trim($value) !== '') {
+            $decoded = json_decode($value, true);
+            if (is_array($decoded)) {
+                return $decoded;
+            }
+        }
+
+        return [];
+    }
+
+    private function collectUploadedFiles(Request $request): array
+    {
+        $collected = [];
+        foreach ($request->allFiles() as $value) {
+            if (is_array($value)) {
+                foreach ($value as $file) {
+                    if ($file) {
+                        $collected[] = $file;
+                    }
+                }
+            } elseif ($value) {
+                $collected[] = $value;
+            }
+        }
+
+        return $collected;
+    }
+
+    private function normalizedOrderAttachments(Order $order): array
+    {
+        $meta = $this->decodeOrderMeta($order->meta_data);
+        $attachments = is_array($meta['attachments'] ?? null) ? array_values($meta['attachments']) : [];
+
+        return $attachments;
     }
 }

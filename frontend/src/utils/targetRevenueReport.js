@@ -445,6 +445,54 @@ export function shouldIncludeInSalespersonRows(user, { personalTarget = 0, hasRe
   return false
 }
 
+export function aggregateDealValueByPerson({
+  deals = [],
+  users = [],
+  salesPersonFilter = 'all',
+  managerScopeIds = null,
+  unknownLabel = 'Unknown',
+} = {}) {
+  const map = new Map()
+  const usersById = indexUsersById(users)
+  const revenueUserIds = new Set(
+    (deals || []).map((deal) => String(deal?.salespersonId || '')).filter(Boolean)
+  )
+
+  const addPerson = (id, label) => {
+    const key = String(id || label || unknownLabel)
+    if (!map.has(key)) {
+      map.set(key, { label: String(label || unknownLabel), value: 0 })
+    } else if (label && map.get(key).label === unknownLabel) {
+      map.get(key).label = String(label)
+    }
+    return key
+  }
+
+  if (salesPersonFilter && salesPersonFilter !== 'all') {
+    const selected = usersById.get(String(salesPersonFilter))
+    if (selected) addPerson(String(selected.id), selected.name)
+  } else {
+    usersListFrom(users).forEach((person) => {
+      if (person?.id == null) return
+      if (managerScopeIds && !managerScopeIds.has(String(person.id))) return
+      if (!shouldIncludeInSalespersonRows(person, {
+        hasRevenue: revenueUserIds.has(String(person.id)),
+      })) return
+      addPerson(String(person.id), person.name)
+    })
+  }
+
+  ;(deals || []).forEach((deal) => {
+    const id = deal?.salespersonId ? String(deal.salespersonId) : ''
+    const user = id ? usersById.get(id) : null
+    const label = String(user?.name || deal?.salesperson || '').trim() || unknownLabel
+    const key = addPerson(id, label)
+    map.get(key).value += Number(deal?.value) || 0
+  })
+
+  return Array.from(map.values())
+}
+
 export function matchesManagerFilter(user, managerFilter, usersById) {
   if (!managerFilter || managerFilter === 'all') return true
   const wanted = String(managerFilter)

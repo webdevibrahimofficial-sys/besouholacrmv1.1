@@ -21,6 +21,7 @@ import {
   isMidLevelManagerRole,
   isManagerFilterRole,
   shouldIncludeInSalespersonRows,
+  aggregateDealValueByPerson,
   matchesManagerFilter,
   resolveReportKpiTarget,
   countClosedDeals,
@@ -366,6 +367,26 @@ describe('targetRevenueReport', () => {
     expect(shouldIncludeInSalespersonRows({ role: 'Sales Person' }, { personalTarget: 0 })).toBe(true)
     expect(shouldIncludeInSalespersonRows({ role: 'Director' }, { personalTarget: 0, hasRevenue: false })).toBe(false)
     expect(shouldIncludeInSalespersonRows({ role: 'Director' }, { personalTarget: 0, hasRevenue: true })).toBe(true)
+  })
+
+  test('deal value chart keeps each salesperson even when the closer name is the team leader', () => {
+    const users = [
+      { id: 1, name: 'team leader', role: 'Team Leader' },
+      { id: 2, name: 'Ahmed', role: 'Sales Person' },
+      { id: 3, name: 'Mona', role: 'Sales Person' },
+    ]
+    const rows = aggregateDealValueByPerson({
+      users,
+      deals: [
+        { salespersonId: '2', salesperson: 'team leader', value: 80000 },
+        { salespersonId: '3', salesperson: 'team leader', value: 40000 },
+        { salespersonId: '1', salesperson: 'team leader', value: 20000 },
+      ],
+    })
+    expect(rows.map((row) => row.label).sort()).toEqual(['Ahmed', 'Mona', 'team leader'])
+    expect(rows.find((row) => row.label === 'Ahmed').value).toBe(80000)
+    expect(rows.find((row) => row.label === 'Mona').value).toBe(40000)
+    expect(rows.find((row) => row.label === 'team leader').value).toBe(20000)
   })
 
   test('manager filter matches the manager plus people they manage', () => {

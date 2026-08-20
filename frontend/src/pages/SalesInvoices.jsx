@@ -15,6 +15,7 @@ import SalesInvoicesFormModal from '../components/SalesInvoicesFormModal'
 import SalesInvoicePreviewModal from '../components/SalesInvoicePreviewModal'
 import SalesInvoicesPaymentModal from '../components/SalesInvoicesPaymentModal'
 import SalesInvoicesImportModal from '../components/SalesInvoicesImportModal'
+import { resolveDocumentCustomerAddress } from '../shared/utils/customerAddress'
 import * as XLSX from 'xlsx'
 
 export default function SalesInvoices() {
@@ -38,7 +39,7 @@ export default function SalesInvoices() {
   const formatPaymentStatus = (status) => {
     const map = {
       Unpaid: isRTL ? 'غير مدفوعة' : 'Unpaid',
-      Partial: isRTL ? 'جزئية' : 'Partial',
+      Partial: isRTL ? 'دفع جزئي' : 'Partial Payment',
       Paid: isRTL ? 'مدفوعة' : 'Paid',
     }
     return map[status] || status || (isRTL ? 'غير مدفوعة' : 'Unpaid')
@@ -55,6 +56,7 @@ export default function SalesInvoices() {
 
   // State
   const [items, setItems] = useState([])
+  const [customersList, setCustomersList] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [successMessage, setSuccessMessage] = useState('')
@@ -152,6 +154,48 @@ export default function SalesInvoices() {
     return s
   }
 
+  const mapInvoiceFromApi = (item) => {
+    if (!item || typeof item !== 'object') return null
+    return {
+      ...item,
+      invoiceNumber: item.invoice_number || item.invoiceNumber || String(item.id),
+      status: normalizeWorkflowStatus(item.status),
+      invoiceType: (() => {
+        const t = String(item.invoice_type || item.invoiceType || '').toLowerCase()
+        if (t === 'advance') return 'Advance'
+        if (t === 'partial') return 'Partial'
+        if (t === 'full') return 'Full'
+        return item.invoice_type || item.invoiceType || ''
+      })(),
+      paidAmount: Number(item.paid_amount ?? item.paidAmount ?? 0),
+      advanceAppliedAmount: Number(item.advance_applied_amount ?? item.advanceAppliedAmount ?? 0),
+      balanceDue: item.balance_due != null
+        ? Number(item.balance_due)
+        : Math.max(0, Number(item.total ?? 0) - Number(item.paid_amount ?? 0) - Number(item.advance_applied_amount ?? 0)),
+      paymentStatus: normalizePaymentStatus(item.payment_status || item.paymentStatus),
+      paymentMethod: item.payment_method || item.paymentMethod,
+      paymentTerms: item.payment_terms || item.paymentTerms,
+      customerName: item.customer_name || item.customerName,
+      customerCode: item.customer_code || item.customerCode,
+      customerAddress: resolveDocumentCustomerAddress(item),
+      customerEmail: item.customer?.email || item.customer_email || item.customerEmail || '',
+      customer: item.customer || null,
+      dueDate: item.due_date || item.dueDate,
+      createdAt: item.created_at || item.createdAt,
+      issueDate: item.issue_date || item.issueDate,
+      orderId: item.order_id ?? item.orderId ?? '',
+      orderUuid: item.order?.uuid || item.orderUuid || '',
+      meta_data: item.meta_data || item.metaData || {},
+      taxRate: Number(item.meta_data?.tax_rate ?? item.metaData?.tax_rate ?? item.tax_rate ?? item.taxRate ?? 0) || undefined,
+      isTaxEnabled: item.meta_data?.is_tax_enabled ?? item.metaData?.is_tax_enabled ?? item.isTaxEnabled,
+      discountType: item.meta_data?.discount_type ?? item.metaData?.discount_type ?? item.discount_type ?? item.discountType,
+      discountRate: Number(item.meta_data?.discount_rate ?? item.metaData?.discount_rate ?? item.discount_rate ?? item.discountRate ?? 0) || 0,
+      discount: Number(item.discount ?? 0),
+      installments: item.meta_data?.installments ?? item.metaData?.installments ?? item.installments,
+      items: Array.isArray(item.items) ? item.items : [],
+    }
+  }
+
   const isOverdueInvoice = (invoice, balanceDue) => {
     const workflow = normalizeWorkflowStatus(invoice?.status)
     if (String(workflow).toLowerCase() !== 'posted') return false
@@ -177,35 +221,7 @@ export default function SalesInvoices() {
       const data = Array.isArray(rawData) ? rawData : []
       
       // Map snake_case to camelCase for frontend compatibility
-      const mappedItems = data.map(item => ({
-        ...item,
-        invoiceNumber: item.invoice_number || item.invoiceNumber || String(item.id),
-        status: normalizeWorkflowStatus(item.status),
-        invoiceType: (() => {
-          const t = String(item.invoice_type || item.invoiceType || '').toLowerCase()
-          if (t === 'advance') return 'Advance'
-          if (t === 'partial') return 'Partial'
-          if (t === 'full') return 'Full'
-          return item.invoice_type || item.invoiceType || ''
-        })(),
-        paidAmount: Number(item.paid_amount ?? item.paidAmount ?? 0),
-        advanceAppliedAmount: Number(item.advance_applied_amount ?? item.advanceAppliedAmount ?? 0),
-        balanceDue: item.balance_due != null
-          ? Number(item.balance_due)
-          : Math.max(0, Number(item.total ?? 0) - Number(item.paid_amount ?? 0) - Number(item.advance_applied_amount ?? 0)),
-        paymentStatus: normalizePaymentStatus(item.payment_status || item.paymentStatus),
-        paymentMethod: item.payment_method || item.paymentMethod,
-        paymentTerms: item.payment_terms || item.paymentTerms,
-        customerName: item.customer_name || item.customerName,
-        customerCode: item.customer_code || item.customerCode,
-        customerAddress: item.customer_address || item.customerAddress || '',
-        customerEmail: item.customer?.email || item.customer_email || item.customerEmail || '',
-        dueDate: item.due_date || item.dueDate,
-        createdAt: item.created_at || item.createdAt,
-        issueDate: item.issue_date || item.issueDate,
-        orderId: item.order_id ?? item.orderId ?? '',
-        orderUuid: item.order?.uuid || item.orderUuid || ''
-      }))
+      const mappedItems = data.map(mapInvoiceFromApi).filter(Boolean)
       
       setItems(mappedItems)
       // If using server-side pagination, you might want to set total items/pages here
@@ -221,6 +237,19 @@ export default function SalesInvoices() {
   useEffect(() => {
     fetchInvoices()
   }, [currentPage, q, filters.status])
+
+  useEffect(() => {
+    const loadCustomers = async () => {
+      try {
+        const cRes = await api.get('/api/customers?all=1')
+        const cRaw = cRes.data?.data || cRes.data || []
+        setCustomersList(Array.isArray(cRaw) ? cRaw : [])
+      } catch {
+        setCustomersList([])
+      }
+    }
+    loadCustomers()
+  }, [])
 
   useEffect(() => {
     const invoiceId = new URLSearchParams(location.search || '').get('invoice_id')
@@ -241,35 +270,8 @@ export default function SalesInvoices() {
         const raw = res?.data
         if (!raw) return
 
-        const mapped = {
-          ...raw,
-          invoiceNumber: raw.invoice_number || raw.invoiceNumber || String(raw.id),
-          status: normalizeWorkflowStatus(raw.status),
-          invoiceType: (() => {
-            const t = String(raw.invoice_type || raw.invoiceType || '').toLowerCase()
-            if (t === 'advance') return 'Advance'
-            if (t === 'partial') return 'Partial'
-            if (t === 'full') return 'Full'
-            return raw.invoice_type || raw.invoiceType || ''
-          })(),
-          paidAmount: Number(raw.paid_amount ?? raw.paidAmount ?? 0),
-          advanceAppliedAmount: Number(raw.advance_applied_amount ?? raw.advanceAppliedAmount ?? 0),
-          balanceDue: raw.balance_due != null
-            ? Number(raw.balance_due)
-            : Math.max(0, Number(raw.total ?? 0) - Number(raw.paid_amount ?? 0) - Number(raw.advance_applied_amount ?? 0)),
-          paymentStatus: normalizePaymentStatus(raw.payment_status || raw.paymentStatus),
-          paymentMethod: raw.payment_method || raw.paymentMethod,
-          paymentTerms: raw.payment_terms || raw.paymentTerms,
-          customerName: raw.customer_name || raw.customerName,
-          customerCode: raw.customer_code || raw.customerCode,
-          customerAddress: raw.customer_address || raw.customerAddress || '',
-          customerEmail: raw.customer?.email || raw.customer_email || raw.customerEmail || '',
-          dueDate: raw.due_date || raw.dueDate,
-          createdAt: raw.created_at || raw.createdAt,
-          issueDate: raw.issue_date || raw.issueDate,
-          orderId: raw.order_id ?? raw.orderId ?? '',
-          orderUuid: raw.order?.uuid || raw.orderUuid || ''
-        }
+        const mapped = mapInvoiceFromApi(raw)
+        if (!mapped) return
 
         setPreviewItem(mapped)
         setShowPreview(true)
@@ -338,12 +340,17 @@ export default function SalesInvoices() {
       const dueDate = normalizeDate(data.dueDate) || null
 
       const rawItems = Array.isArray(data.items) ? data.items : []
-      const items = rawItems.map(it => ({
-        ...it,
-        quantity: toNumber(it?.quantity ?? it?.qty ?? 0, 0),
-        price: toNumber(it?.price ?? it?.unit_price ?? it?.unitPrice ?? 0, 0),
-        discount: toNumber(it?.discount ?? 0, 0),
-      }))
+      const items = rawItems.map(it => {
+        const itemId = it?.item_id ?? it?.itemId ?? it?.product_id ?? null
+        return {
+          ...it,
+          item_id: itemId != null && String(itemId).trim() !== '' ? Number(itemId) || itemId : undefined,
+          name: it?.name || it?.item_name || it?.product_name || '',
+          quantity: toNumber(it?.quantity ?? it?.qty ?? 0, 0),
+          price: toNumber(it?.price ?? it?.unit_price ?? it?.unitPrice ?? 0, 0),
+          discount: toNumber(it?.discount ?? 0, 0),
+        }
+      })
 
       const payload = {
         customer_name: data.customerName,
@@ -357,14 +364,27 @@ export default function SalesInvoices() {
         items,
         subtotal: toNumber(data.subtotal ?? 0, 0),
         tax: toNumber(data.tax ?? 0, 0),
-        discount: toNumber(data.discount ?? data.discountAmount ?? 0, 0),
+        tax_rate: toNumber(data.taxRate ?? data.tax_rate ?? 0, 0),
+        is_tax_enabled: data.isTaxEnabled !== undefined ? (data.isTaxEnabled ? 1 : 0) : undefined,
+        discount: toNumber(data.discountAmount ?? 0, 0),
+        discount_type: data.discountType || data.discount_type || 'value',
+        discount_rate: toNumber(
+          data.discountType === 'percent'
+            ? (data.discount ?? 0)
+            : ((Number(data.discountRate) > 1 ? data.discountRate : (Number(data.discountRate) || 0) * 100)),
+          0
+        ),
         total: toNumber(data.total ?? 0, 0),
         advance_applied_amount: toNumber(data.advanceAppliedAmount ?? 0, 0),
         status: data.status || 'Draft',
         payment_method: data.paymentMethod || null,
-        payment_terms: data.paymentTerms || null,
+        payment_terms: String(data.invoiceType) === 'Full' ? null : (data.paymentTerms || null),
         currency: data.currency || crmCurrency,
         notes: data.notes || null,
+        meta_data: {
+          ...(data.meta_data || data.metaData || {}),
+          installments: data.installments || { enabled: false, schedule: [] },
+        },
       }
 
       const isUpdate = typeof data.id === 'number'
@@ -442,27 +462,46 @@ export default function SalesInvoices() {
   const emailAction = () => ({ type: 'email', label: isRTL ? 'إرسال بالبريد' : 'Send by Email', icon: FaPaperPlane, color: 'text-purple-600' })
   const cancelAction = () => ({ type: 'cancel', label: isRTL ? 'إلغاء' : 'Cancel', icon: FaBan, color: 'text-red-600' })
   const paymentAction = () => ({ type: 'payment', label: isRTL ? 'تأكيد الدفع' : 'Confirm Payment', icon: FaPlay, color: 'text-blue-600' })
-  const returnAction = () => ({ type: 'return', label: isRTL ? 'مرتجع' : 'Return', icon: FaUndo, color: 'text-orange-600' })
+  const returnAction = () => ({ type: 'return', label: isRTL ? 'استرداد' : 'Refund', icon: FaUndo, color: 'text-orange-600' })
 
   const getInvoiceReturnableLines = (invoice) => {
     const lines = Array.isArray(invoice?.items) ? invoice.items : []
     const returned = invoice?.meta_data?.returned_quantities || invoice?.metaData?.returned_quantities || {}
     return lines.map((row, idx) => {
-      const itemId = row?.item_id ?? row?.itemId ?? row?.item ?? null
+      const itemId = row?.item_id ?? row?.itemId ?? row?.product_id ?? row?.item ?? null
       const name = row?.name || row?.item_name || row?.product_name || ''
       const qty = Number(row?.quantity ?? row?.qty ?? 0) || 0
-      const already = Number(returned[String(itemId)] ?? returned[itemId] ?? 0) || 0
+      const price = Number(row?.price ?? row?.unit_price ?? row?.unitPrice ?? 0) || 0
+      const discount = Number(row?.discount ?? 0) || 0
+      const lineNet = Math.max(0, (qty * price) - discount)
+      const unitNet = qty > 0 ? lineNet / qty : 0
+      const already = Number(
+        (itemId != null ? (returned[String(itemId)] ?? returned[itemId]) : undefined)
+        ?? 0
+      ) || 0
       const max = Math.max(0, qty - already)
       return {
         key: `${itemId || name || 'line'}-${idx}`,
         item_id: itemId,
         name,
+        price,
+        unitNet,
         invoiced: qty,
         already,
         max,
         quantity: max,
       }
     }).filter((line) => line.max > 0 && (line.item_id || line.name))
+  }
+
+  const estimateRefundAmount = (lines, invoice) => {
+    const selected = (lines || []).reduce((sum, line) => {
+      const qty = Number(line.quantity) || 0
+      const unit = Number(line.unitNet) || 0
+      return sum + (qty * unit)
+    }, 0)
+    const paid = Number(invoice?.paidAmount ?? invoice?.paid_amount ?? 0) || 0
+    return Math.min(Math.max(0, selected), Math.max(0, paid))
   }
 
   const getAvailableActionsForInvoice = (invoice, balanceDue) => {
@@ -514,8 +553,8 @@ export default function SalesInvoices() {
     const body = `
       <p>${isRTL ? 'فاتورة رقم' : 'Invoice #'}: <strong>${invNo}</strong></p>
       <p>${isRTL ? 'العميل' : 'Customer'}: ${invoice.customerName || '-'}</p>
-      <p>${isRTL ? 'الإجمالي' : 'Total'}: ${Number(invoice.total || 0).toLocaleString()}</p>
-      <p>${isRTL ? 'المتبقي' : 'Balance'}: ${Number(invoice.balanceDue || 0).toLocaleString()}</p>
+      <p>${isRTL ? 'إجمالي المبلغ' : 'Total Amount'}: ${Number(invoice.total || 0).toLocaleString()}</p>
+      <p>${isRTL ? 'المتبقي' : 'Remaining'}: ${Number(invoice.balanceDue || 0).toLocaleString()}</p>
     `
 
     try {
@@ -546,14 +585,26 @@ export default function SalesInvoices() {
       return
     }
     if (actionType === 'return') {
-      const lines = getInvoiceReturnableLines(invoice)
-      if (!lines.length) {
-        alert(isRTL ? 'لا توجد كميات قابلة للإرجاع على هذه الفاتورة' : 'This invoice has no returnable quantities')
-        return
+      const openRefund = async () => {
+        try {
+          setReturning(true)
+          const res = await api.get(`/api/sales-invoices/${invoice.id}`)
+          const mapped = mapInvoiceFromApi(res?.data) || invoice
+          const lines = getInvoiceReturnableLines(mapped)
+          if (!lines.length) {
+            alert(isRTL ? 'لا توجد كميات قابلة للاسترداد على هذه الفاتورة' : 'This invoice has no refundable quantities')
+            return
+          }
+          setReturnInvoice(mapped)
+          setReturnLines(lines)
+          setShowReturnModal(true)
+        } catch (e) {
+          alert(e?.response?.data?.message || (isRTL ? 'فشل تحميل الفاتورة للاسترداد' : 'Failed to load invoice for refund'))
+        } finally {
+          setReturning(false)
+        }
       }
-      setReturnInvoice(invoice)
-      setReturnLines(lines)
-      setShowReturnModal(true)
+      openRefund()
       return
     }
 
@@ -680,19 +731,36 @@ export default function SalesInvoices() {
         quantity: Number(line.quantity),
       }))
     if (!payloadItems.length) {
-      alert(isRTL ? 'حدد كمية للإرجاع' : 'Enter a return quantity')
+      alert(isRTL ? 'حدد كمية للاسترداد' : 'Enter a refund quantity')
+      return
+    }
+    const missingId = payloadItems.some((row) => !row.item_id && !row.name)
+    if (missingId) {
+      alert(isRTL ? 'بعض البنود بلا معرف أو اسم. عدّل الفاتورة واختر العنصر من الكتالوج.' : 'Some lines lack an item id or name. Edit the invoice and pick catalog items.')
       return
     }
     setReturning(true)
     try {
-      await api.post(`/api/sales-invoices/${returnInvoice.id}/returns`, { items: payloadItems })
+      const res = await api.post(`/api/sales-invoices/${returnInvoice.id}/returns`, {
+        items: payloadItems,
+        refund_payment: true,
+        payment_method: returnInvoice.paymentMethod || returnInvoice.payment_method || null,
+        notes: isRTL ? 'استرداد بنود فاتورة' : 'Refund for returned invoice items',
+      })
       setShowReturnModal(false)
       setReturnInvoice(null)
       setReturnLines([])
       await fetchInvoices()
-      showSuccess(isRTL ? 'تم تسجيل المرتجع وإعادة الكمية للمخزون المتاح' : 'Return recorded and stock restored to available')
+      const refundAmt = Number(res?.data?.refund_payment?.amount ?? 0)
+      const baseMsg = isRTL
+        ? 'تم تسجيل الاسترداد وإعادة الكمية للمخزون المتاح'
+        : 'Refund recorded and stock restored to available'
+      const moneyMsg = refundAmt > 0
+        ? (isRTL ? ` · مبلغ مسترد: ${refundAmt.toLocaleString()}` : ` · Refunded amount: ${refundAmt.toLocaleString()}`)
+        : ''
+      showSuccess(baseMsg + moneyMsg)
     } catch (e) {
-      alert(e?.response?.data?.message || (isRTL ? 'فشل تسجيل المرتجع' : 'Return failed'))
+      alert(e?.response?.data?.message || (isRTL ? 'فشل تسجيل الاسترداد' : 'Refund failed'))
     } finally {
       setReturning(false)
     }
@@ -884,9 +952,9 @@ export default function SalesInvoices() {
       'Due Date': new Date(item.dueDate).toLocaleDateString(),
       'Customer': item.customerName,
       'Order #': item.orderUuid || item.orderId,
-      'Total': item.total,
+      'Total Amount': item.total,
       'Paid': item.paidAmount,
-      'Balance': item.balanceDue ?? (item.total - item.paidAmount - (item.advanceAppliedAmount || 0)),
+      'Remaining': item.balanceDue ?? (item.total - item.paidAmount - (item.advanceAppliedAmount || 0)),
       'Payment Status': item.paymentStatus
     }))
     const ws = XLSX.utils.json_to_sheet(data)
@@ -909,9 +977,9 @@ export default function SalesInvoices() {
       'Due Date': new Date(item.dueDate).toLocaleDateString(),
       'Customer': item.customerName,
       'Order #': item.orderUuid || item.orderId,
-      'Total': item.total,
+      'Total Amount': item.total,
       'Paid': item.paidAmount,
-      'Balance': item.balanceDue ?? (item.total - item.paidAmount - (item.advanceAppliedAmount || 0)),
+      'Remaining': item.balanceDue ?? (item.total - item.paidAmount - (item.advanceAppliedAmount || 0)),
       'Payment Status': item.paymentStatus
     }))
     const ws = XLSX.utils.json_to_sheet(data)
@@ -1125,7 +1193,7 @@ export default function SalesInvoices() {
               onChange={(val) => setFilters(prev => ({ ...prev, paymentStatus: val }))}
               options={[
                 { value: 'Unpaid', label: isRTL ? 'غير مدفوعة' : 'Unpaid' },
-                { value: 'Partial', label: isRTL ? 'جزئية' : 'Partial' },
+                { value: 'Partial', label: isRTL ? 'دفع جزئي' : 'Partial Payment' },
                 { value: 'Paid', label: isRTL ? 'مدفوعة' : 'Paid' }
               ]}
               placeholder={isRTL ? 'حالة الدفع' : 'Payment Status'}
@@ -1142,9 +1210,9 @@ export default function SalesInvoices() {
               value={filters.invoiceType}
               onChange={(val) => setFilters(prev => ({ ...prev, invoiceType: val }))}
               options={[
-                { value: 'Full', label: isRTL ? 'فاتورة كاملة' : 'Full' },
-                { value: 'Partial', label: isRTL ? 'فاتورة جزئية' : 'Partial' },
-                { value: 'Advance', label: isRTL ? 'دفعة مقدمة' : 'Advance' }
+                { value: 'Full', label: isRTL ? 'دفع كامل' : 'Full Payment' },
+                { value: 'Partial', label: isRTL ? 'دفع جزئي' : 'Partial Payment' },
+                { value: 'Advance', label: isRTL ? 'دفع مؤجل' : 'Deferred Payment' }
               ]}
               placeholder={isRTL ? 'كل الأنواع' : 'All Types'}
               isRTL={isRTL}
@@ -1248,17 +1316,17 @@ export default function SalesInvoices() {
                   <th onClick={() => handleSort('orderId')} className="p-4 cursor-pointer hover:text-blue-600 whitespace-nowrap transition-colors min-w-[140px]">
                     {isRTL ? 'رقم الطلب' : 'Order #'}
                   </th>
-                  <th onClick={() => handleSort('total')} className="p-4 cursor-pointer hover:text-blue-600 whitespace-nowrap transition-colors min-w-[120px]">
-                    {isRTL ? 'الإجمالي' : 'Total'}
-                  </th>
                   <th onClick={() => handleSort('invoiceType')} className="p-4 cursor-pointer hover:text-blue-600 whitespace-nowrap transition-colors min-w-[140px]">
                     {isRTL ? 'نوع الفاتورة' : 'Invoice Type'}
+                  </th>
+                  <th onClick={() => handleSort('total')} className="p-4 cursor-pointer hover:text-blue-600 whitespace-nowrap transition-colors min-w-[120px]">
+                    {isRTL ? 'إجمالي المبلغ' : 'Total Amount'}
                   </th>
                   <th onClick={() => handleSort('paidAmount')} className="p-4 cursor-pointer hover:text-blue-600 whitespace-nowrap transition-colors min-w-[120px]">
                     {isRTL ? 'المدفوع' : 'Paid'}
                   </th>
                   <th className="p-4 whitespace-nowrap min-w-[120px]">
-                    {isRTL ? 'المتبقي' : 'Balance'}
+                    {isRTL ? 'المتبقي' : 'Remaining'}
                   </th>
                   <th className="p-4 text-end min-w-[220px]">
                     {isRTL ? 'إجراءات' : 'Actions'}
@@ -1348,19 +1416,16 @@ export default function SalesInvoices() {
                         <td className={`p-4 ${isLight ? 'text-black' : 'text-white'}`}>{item.createdAt ? new Date(item.createdAt).toLocaleDateString() : '-'}</td>
                         <td className={`p-4 ${isLight ? 'text-black' : 'text-white'}`}>{item.customerName}</td>
                         <td className={`p-4 ${isLight ? 'text-black' : 'text-white'}`}>{item.orderUuid || item.orderId || '-'}</td>
-                        <td className={`p-4 font-bold ${isLight ? 'text-black' : 'text-white'}`}>{Number(item.total).toLocaleString()}</td>
                         <td className={`p-4 ${isLight ? 'text-black' : 'text-white'}`}>
-                          {isRTL
-                            ? (item.invoiceType === 'Full'
-                                ? 'فاتورة كاملة'
-                                : item.invoiceType === 'Partial'
-                                  ? 'فاتورة جزئية'
-                                  : item.invoiceType === 'Advance'
-                                    ? 'دفعة مقدمة'
-                                    : (item.invoiceType || '-'))
-                            : (item.invoiceType || '-')
-                          }
+                          {item.invoiceType === 'Full'
+                            ? (isRTL ? 'دفع كامل' : 'Full Payment')
+                            : item.invoiceType === 'Partial'
+                              ? (isRTL ? 'دفع جزئي' : 'Partial Payment')
+                              : item.invoiceType === 'Advance'
+                                ? (isRTL ? 'دفع مؤجل' : 'Deferred Payment')
+                                : (item.invoiceType || '-')}
                         </td>
+                        <td className={`p-4 font-bold ${isLight ? 'text-black' : 'text-white'}`}>{Number(item.total).toLocaleString()}</td>
                         <td className="p-4 text-green-600">{Number(item.paidAmount || 0).toLocaleString()}</td>
                         <td className="p-4 text-red-500">{balanceDue.toLocaleString()}</td>
                         <td className={`p-4 whitespace-nowrap ${activeRowId === item.id ? 'sticky ltr:right-0 rtl:left-0 shadow-[-10px_0_15px_-3px_rgba(0,0,0,0.1)] dark:shadow-none z-10' : ''}`}>
@@ -1427,7 +1492,19 @@ export default function SalesInvoices() {
                         <span className={`font-medium ${isLight ? 'text-black' : 'text-white'}`}>{new Date(item.dueDate).toLocaleDateString()}</span>
                       </div>
                       <div>
-                        <span className="text-[var(--muted-text)] block text-xs">{isRTL ? 'الإجمالي' : 'Total'}</span>
+                        <span className="text-[var(--muted-text)] block text-xs">{isRTL ? 'نوع الفاتورة' : 'Invoice Type'}</span>
+                        <span className={`font-medium ${isLight ? 'text-black' : 'text-white'}`}>
+                          {item.invoiceType === 'Full'
+                            ? (isRTL ? 'دفع كامل' : 'Full Payment')
+                            : item.invoiceType === 'Partial'
+                              ? (isRTL ? 'دفع جزئي' : 'Partial Payment')
+                              : item.invoiceType === 'Advance'
+                                ? (isRTL ? 'دفع مؤجل' : 'Deferred Payment')
+                                : (item.invoiceType || '-')}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-[var(--muted-text)] block text-xs">{isRTL ? 'إجمالي المبلغ' : 'Total Amount'}</span>
                         <span className={`font-bold ${isLight ? 'text-black' : 'text-white'}`}>{Number(item.total).toLocaleString()}</span>
                       </div>
                       <div>
@@ -1435,7 +1512,7 @@ export default function SalesInvoices() {
                         <span className="font-medium text-green-600">{Number(item.paidAmount || 0).toLocaleString()}</span>
                       </div>
                       <div>
-                        <span className="text-[var(--muted-text)] block text-xs">{isRTL ? 'المتبقي' : 'Balance'}</span>
+                        <span className="text-[var(--muted-text)] block text-xs">{isRTL ? 'المتبقي' : 'Remaining'}</span>
                         <span className="font-medium text-red-500">{balanceDue.toLocaleString()}</span>
                       </div>
                     </div>
@@ -1618,16 +1695,22 @@ export default function SalesInvoices() {
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
             <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-lg overflow-hidden">
               <div className="p-4 border-b border-gray-100 dark:border-gray-700 flex justify-between items-center">
-                <h3 className="text-lg font-bold">{isRTL ? 'مرتجع فاتورة' : 'Invoice Return'}</h3>
-                <button onClick={() => { setShowReturnModal(false); setReturnInvoice(null) }} className="text-gray-400 hover:text-gray-600">
+                <h3 className="text-lg font-bold">{isRTL ? 'استرداد فاتورة' : 'Invoice Refund'}</h3>
+                <button onClick={() => { setShowReturnModal(false); setReturnInvoice(null); setReturnLines([]) }} className="text-gray-400 hover:text-gray-600">
                   <FaTimes />
                 </button>
               </div>
               <div className="p-4 space-y-3">
                 <p className="text-sm text-gray-600 dark:text-gray-300">
                   {isRTL
-                    ? 'أدخل الكمية المراد إرجاعها. تُعاد من المباعة إلى المتاحة.'
-                    : 'Enter quantities to return. Sold stock is moved back to available.'}
+                    ? 'أدخل الكميات المراد استردادها. تُعاد للمخزون المتاح، ويُخفض المدفوع إن وُجد.'
+                    : 'Enter quantities to refund. Stock returns to available, and paid amount is reduced when applicable.'}
+                </p>
+                <p className="text-xs text-gray-500">
+                  {isRTL ? 'الفاتورة' : 'Invoice'}: {returnInvoice.invoiceNumber || returnInvoice.id}
+                  {(Number(returnInvoice.paidAmount) || 0) > 0
+                    ? ` · ${isRTL ? 'مدفوع' : 'Paid'}: ${Number(returnInvoice.paidAmount || 0).toLocaleString()}`
+                    : ''}
                 </p>
                 {returnLines.map((line) => (
                   <div key={line.key} className="grid grid-cols-[1fr_auto_auto] gap-3 items-center">
@@ -1635,7 +1718,8 @@ export default function SalesInvoices() {
                       <div className="text-sm font-medium">{line.name || `#${line.item_id}`}</div>
                       <div className="text-xs text-gray-500">
                         {isRTL ? 'مرحّل' : 'Invoiced'}: {line.invoiced}
-                        {line.already > 0 ? ` · ${isRTL ? 'مرتجع سابقاً' : 'Already returned'}: ${line.already}` : ''}
+                        {line.already > 0 ? ` · ${isRTL ? 'مسترد سابقاً' : 'Already refunded'}: ${line.already}` : ''}
+                        {line.unitNet > 0 ? ` · ${isRTL ? 'صافي الوحدة' : 'Unit net'}: ${Number(line.unitNet).toLocaleString()}` : ''}
                       </div>
                     </div>
                     <span className="text-xs text-gray-500">{isRTL ? 'الحد' : 'Max'} {line.max}</span>
@@ -1652,17 +1736,23 @@ export default function SalesInvoices() {
                     />
                   </div>
                 ))}
+                {estimateRefundAmount(returnLines, returnInvoice) > 0 && (
+                  <div className="pt-2 border-t border-gray-100 dark:border-gray-700 text-sm font-medium">
+                    {isRTL ? 'مبلغ الاسترداد التقديري' : 'Estimated refund'}:{' '}
+                    {estimateRefundAmount(returnLines, returnInvoice).toLocaleString()}
+                  </div>
+                )}
               </div>
               <div className="p-4 bg-gray-50 dark:bg-gray-900/50 flex justify-end gap-2">
-                <button onClick={() => { setShowReturnModal(false); setReturnInvoice(null) }} className="btn btn-ghost btn-sm">
+                <button onClick={() => { setShowReturnModal(false); setReturnInvoice(null); setReturnLines([]) }} className="btn btn-ghost btn-sm">
                   {isRTL ? 'إلغاء' : 'Cancel'}
                 </button>
                 <button
                   onClick={handleSubmitReturn}
-                  disabled={returning}
+                  disabled={returning || !returnLines.some((l) => Number(l.quantity) > 0)}
                   className="btn btn-primary btn-sm"
                 >
-                  {returning ? (isRTL ? 'جاري الحفظ...' : 'Saving...') : (isRTL ? 'تأكيد المرتجع' : 'Confirm Return')}
+                  {returning ? (isRTL ? 'جاري الحفظ...' : 'Saving...') : (isRTL ? 'تأكيد الاسترداد' : 'Confirm Refund')}
                 </button>
               </div>
             </div>
@@ -1692,6 +1782,7 @@ export default function SalesInvoices() {
         isOpen={showPreview}
         onClose={() => { setShowPreview(false); setPreviewItem(null); }}
         invoice={previewItem}
+        customers={customersList}
       />
 
       <SalesInvoicesPaymentModal

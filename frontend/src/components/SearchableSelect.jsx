@@ -17,6 +17,8 @@ export default function SearchableSelect({
   creatable = false,
   dropdownZIndex = 20050,
   placement = 'auto',
+  disabled = false,
+  noResultsLabel,
 }) {
   const [isOpen, setIsOpen] = useState(false)
   const [search, setSearch] = useState('')
@@ -87,17 +89,27 @@ export default function SearchableSelect({
   }
 
   useEffect(() => {
+    if (!isOpen) return
+
+    // Capture phase so parent modals that call stopPropagation on mousedown/click
+    // (e.g. sales form cards) cannot block outside-click close.
     function handleClickOutside(event) {
       const clickedWrapper = wrapperRef.current && wrapperRef.current.contains(event.target)
       const clickedDropdown = dropdownRef.current && dropdownRef.current.contains(event.target)
       if (!clickedWrapper && !clickedDropdown) {
         setIsOpen(false)
+        setSearch('')
+      }
+    }
+
+    function handleKeyDown(event) {
+      if (event.key === 'Escape') {
+        setIsOpen(false)
+        setSearch('')
       }
     }
 
     function handleScroll(event) {
-      if (!isOpen) return
-
       const target = event?.target
       const insideDropdown =
         target && dropdownRef.current && (dropdownRef.current === target || dropdownRef.current.contains(target))
@@ -108,12 +120,14 @@ export default function SearchableSelect({
       rafRef.current = requestAnimationFrame(() => updatePosition())
     }
 
-    document.addEventListener('mousedown', handleClickOutside)
+    document.addEventListener('mousedown', handleClickOutside, true)
+    document.addEventListener('keydown', handleKeyDown)
     window.addEventListener('scroll', handleScroll, true)
     window.addEventListener('resize', handleScroll)
 
     return () => {
-      document.removeEventListener('mousedown', handleClickOutside)
+      document.removeEventListener('mousedown', handleClickOutside, true)
+      document.removeEventListener('keydown', handleKeyDown)
       window.removeEventListener('scroll', handleScroll, true)
       window.removeEventListener('resize', handleScroll)
       if (rafRef.current) cancelAnimationFrame(rafRef.current)
@@ -121,7 +135,9 @@ export default function SearchableSelect({
   }, [isOpen])
 
   const toggleOpen = () => {
+    if (disabled) return
     if (!isOpen) {
+      setSearch('')
       setIsOpen(true)
       updatePosition()
       if (rafRef.current) cancelAnimationFrame(rafRef.current)
@@ -130,6 +146,7 @@ export default function SearchableSelect({
     }
 
     setIsOpen(false)
+    setSearch('')
   }
 
   const getOptionValue = (opt) => (typeof opt === 'object' && opt !== null && 'value' in opt ? opt.value : opt)
@@ -252,17 +269,24 @@ export default function SearchableSelect({
       <div className="p-2 border-b border-[var(--panel-border)]/70">
         <div className="relative">
           <FaSearch
-            className={`absolute top-1/2 -translate-y-1/2 text-[var(--theme-text)] ${isRTL ? 'right-3' : 'left-3'}`}
+            className={`pointer-events-none absolute top-1/2 -translate-y-1/2 text-[var(--theme-text)] ${isRTL ? 'right-3' : 'left-3'}`}
             size={12}
           />
           <input
             autoFocus
             type="text"
-            className={`input input-sm w-full bg-[var(--app-bg)] border border-[var(--panel-border)]/80 text-sm ${isRTL ? 'pr-8 pl-2' : 'pl-8 pr-2'} text-[var(--theme-text)] placeholder-slate-500 dark:placeholder-gray-400 focus:outline-none focus:ring-0 focus:border-[var(--nova-accent)]`}
+            className={`input input-sm w-full bg-[var(--app-bg)] border border-[var(--panel-border)]/80 text-sm ${isRTL ? '!pr-8 !pl-2' : '!pl-8 !pr-2'} text-[var(--theme-text)] placeholder-slate-500 dark:placeholder-gray-400 focus:outline-none focus:ring-0 focus:border-[var(--nova-accent)]`}
             placeholder={isRTL ? 'بحث...' : 'Search...'}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                e.stopPropagation()
+                setIsOpen(false)
+                setSearch('')
+              }
+            }}
           />
         </div>
       </div>
@@ -344,7 +368,7 @@ export default function SearchableSelect({
           <div className="px-3 py-4 text-center text-sm text-[var(--muted-text)]">
             {isCreatable
               ? (isRTL ? 'اكتب نوعاً جديداً أو اختر من القائمة' : 'Type a custom value or pick from the list')
-              : (isRTL ? 'لا توجد نتائج' : 'No results found')}
+              : (noResultsLabel || (isRTL ? 'لا توجد نتائج' : 'No results found'))}
           </div>
         ) : null}
       </div>
@@ -364,15 +388,17 @@ export default function SearchableSelect({
   ) : null
 
   return (
-    <div className={`relative ${isOpen ? 'z-50' : ''}`} ref={wrapperRef}>
+    <div className={`relative ${isOpen ? 'z-50' : ''} ${disabled ? 'opacity-60 cursor-not-allowed' : ''}`} ref={wrapperRef}>
       {isCreatable ? (
-        <div className={`input w-full flex items-center justify-between gap-2 bg-[var(--card-bg)] border border-[var(--panel-border)] text-[var(--theme-text)] ${className}`}>
+        <div className={`input w-full flex items-center justify-between gap-2 bg-[var(--card-bg)] border border-[var(--panel-border)] text-[var(--theme-text)] ${className} ${disabled ? 'pointer-events-none' : ''}`}>
           <input
             type="text"
             className="min-w-0 flex-1 bg-transparent border-0 p-0 text-sm text-[var(--theme-text)] placeholder:text-[var(--muted-text)] focus:outline-none focus:ring-0"
             value={isOpen ? search : (value || '')}
             placeholder={placeholder || ''}
+            disabled={disabled}
             onFocus={() => {
+              if (disabled) return
               setSearch(String(value || ''))
               setIsOpen(true)
               updatePosition()
@@ -380,6 +406,7 @@ export default function SearchableSelect({
               rafRef.current = requestAnimationFrame(() => updatePosition())
             }}
             onChange={(e) => {
+              if (disabled) return
               const next = e.target.value
               setSearch(next)
               onChange(next)
@@ -389,6 +416,7 @@ export default function SearchableSelect({
               }
             }}
             onKeyDown={(e) => {
+              if (disabled) return
               if (e.key === 'Enter') {
                 e.preventDefault()
                 e.stopPropagation()
@@ -420,8 +448,9 @@ export default function SearchableSelect({
         </div>
       ) : (
       <div
-        className={`input w-full flex items-center justify-between cursor-pointer bg-[var(--card-bg)] border border-[var(--panel-border)] text-[var(--theme-text)] ${className}`}
+        className={`input w-full flex items-center justify-between bg-[var(--card-bg)] border border-[var(--panel-border)] text-[var(--theme-text)] ${disabled ? 'cursor-not-allowed pointer-events-none' : 'cursor-pointer'} ${className}`}
         onClick={toggleOpen}
+        aria-disabled={disabled || undefined}
       >
         <span className={`text-sm ${isEmpty ? 'text-[var(--muted-text)] opacity-100' : 'text-[var(--theme-text)]'}`}>
           {getDisplayValue()}
@@ -433,7 +462,7 @@ export default function SearchableSelect({
       </div>
       )}
 
-      {isOpen && createPortal(dropdownContent, document.body)}
+      {isOpen && !disabled && createPortal(dropdownContent, document.body)}
     </div>
   )
 }

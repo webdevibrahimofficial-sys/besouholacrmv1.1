@@ -29,6 +29,7 @@ import SearchableSelect from '../../components/SearchableSelect'
 import DateRangePicker from '../../shared/components/DateRangePicker'
 import RequestPreviewModal from '../../components/RequestPreviewModal'
 import { useAppState } from '../../shared/context/AppStateProvider'
+import { pickLeadAddressFields } from '../../shared/utils/leadToCustomerFields'
 import { CATEGORY_TYPE_PRODUCTS, CATEGORY_TYPE_SERVICES, normalizeCategoryType } from '../../features/inventory/categoryType'
 
 const CURRENCY_SYMBOLS = {
@@ -724,17 +725,40 @@ export default function RequestsPage() {
             phone = String(v || '').trim()
           }
           if (!phone) { alert(isRTL ? 'تم إلغاء التحويل' : 'Conversion canceled'); setLoading(false); return }
-          let leadEmail = '', leadAssignedTo = null
+          let leadEmail = '', leadAssignedTo = null, leadId = null, leadSource = ''
+          let leadCountry = '', leadCity = '', leadAddressLine = ''
+          const meta = item.meta_data || item.metaData || {}
+          const requestLeadId = meta.lead_id || meta.leadId || item.lead_id || item.leadId || null
           try {
             const lr = await api.get('/api/leads', { params: { q: phone, per_page: 1 } })
             const lf = Array.isArray(lr?.data?.data) ? (lr.data.data[0] || null) : (Array.isArray(lr?.data) ? (lr.data[0] || null) : null)
             leadEmail = String(lf?.email || '').trim()
             leadAssignedTo = lf?.assigned_to || (typeof lf?.assignedTo === 'object' ? lf.assignedTo?.id : null)
-          } catch {}
+            leadId = lf?.id || requestLeadId || null
+            leadSource = String(lf?.source || '').trim()
+            const addr = pickLeadAddressFields(lf || {})
+            leadCountry = addr.country
+            leadCity = addr.city
+            leadAddressLine = addr.addressLine
+          } catch {
+            leadId = requestLeadId || null
+          }
+          // Prefer original lead/request source — never store "Converted Request" as Source
+          const customerSource = String(item.source || leadSource || '').trim() || 'Unknown'
           const nr = await api.post('/api/customers', {
             name: item.customerName, phone, email: leadEmail || undefined,
             assigned_to: leadAssignedTo ? String(leadAssignedTo) : undefined,
-            source: 'Converted Request', type: 'Individual', notes: `Auto-created from Request ${item.id}`
+            source: customerSource,
+            type: 'Individual',
+            country: leadCountry || undefined,
+            city: leadCity || undefined,
+            addressLine: leadAddressLine || undefined,
+            notes: `Auto-created from Request ${item.id}`,
+            meta_data: {
+              created_from: 'inventory_request',
+              converted_from_request_id: item.id,
+              ...(leadId ? { lead_id: Number(leadId) || leadId } : {}),
+            },
           })
           customerId = String(nr.data.id)
         }

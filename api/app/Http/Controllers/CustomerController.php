@@ -5,6 +5,8 @@ namespace App\Http\Controllers;
 use App\Models\Customer;
 use App\Models\Entity;
 use App\Models\FieldValue;
+use App\Models\InventoryRequest;
+use App\Models\Lead;
 use App\Models\Order;
 use App\Models\Opportunity;
 use App\Models\SalesInvoice;
@@ -16,6 +18,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
@@ -41,6 +44,283 @@ class CustomerController extends Controller
             }
         }
         return $digits;
+    }
+
+    /**
+     * Conversion status labels wrongly stored as Source (e.g. "Converted Request").
+     * Real source should remain the original lead/request marketing source.
+     */
+    private function isPlaceholderCustomerSource(?string $source): bool
+    {
+        $normalized = strtolower(trim(preg_replace('/\s+/', ' ', (string) $source)));
+
+        return $normalized === ''
+            || in_array($normalized, [
+                'converted request',
+                'converted from request',
+                'real estate request',
+            ], true);
+    }
+
+    private function findLinkedLead(
+        ?int $tenantId,
+        ?string $phone = null,
+        ?array $meta = null,
+        ?string $notes = null
+    ): ?Lead {
+        $meta = is_array($meta) ? $meta : [];
+        $leadId = (int) ($meta['lead_id'] ?? $meta['leadId'] ?? 0);
+        $requestId = (int) ($meta['converted_from_request_id'] ?? $meta['request_id'] ?? 0);
+
+        if ($requestId <= 0 && is_string($notes) && preg_match('/Auto-created from Request\s+(\d+)/i', $notes, $m)) {
+            $requestId = (int) $m[1];
+        }
+
+        if ($leadId <= 0 && $requestId > 0 && Schema::hasTable('inventory_requests')) {
+            $request = InventoryRequest::query()
+                ->when($tenantId, fn ($q) => $q->where('tenant_id', $tenantId))
+                ->find($requestId);
+
+            if ($request) {
+                $requestMeta = is_array($request->meta_data) ? $request->meta_data : [];
+                $leadId = (int) ($requestMeta['lead_id'] ?? $requestMeta['leadId'] ?? 0);
+            }
+        }
+
+        $leadQuery = Lead::query()
+            ->with(['customFieldValues.field'])
+            ->when($tenantId, fn ($q) => $q->where('tenant_id', $tenantId));
+
+        $lead = null;
+        if ($leadId > 0) {
+            $lead = (clone $leadQuery)->find($leadId);
+        }
+
+        if (! $lead && $phone) {
+            $normalizedPhone = $this->normalizePhone($phone);
+            if ($normalizedPhone !== '') {
+                $lead = (clone $leadQuery)
+                    ->where(function ($q) use ($phone, $normalizedPhone) {
+                        $q->where('phone', $phone)
+                            ->orWhere('phone', $normalizedPhone)
+                            ->orWhere('phone', 'like', '%' . substr($normalizedPhone, -9));
+                    })
+                    ->orderByDesc('id')
+                    ->first();
+            }
+        }
+
+        return $lead;
+    }
+
+    private function resolveOriginalLeadSource(
+        ?int $tenantId,
+        ?string $phone = null,
+        ?array $meta = null,
+        ?string $notes = null
+    ): ?string {
+        $meta = is_array($meta) ? $meta : [];
+        $requestId = (int) ($meta['converted_from_request_id'] ?? $meta['request_id'] ?? 0);
+
+        if ($requestId <= 0 && is_string($notes) && preg_match('/Auto-created from Request\s+(\d+)/i', $notes, $m)) {
+            $requestId = (int) $m[1];
+        }
+
+        // Prefer inventory request source when conversion came from a request
+        if ($requestId > 0 && Schema::hasTable('inventory_requests')) {
+            $request = InventoryRequest::query()
+                ->when($tenantId, fn ($q) => $q->where('tenant_id', $tenantId))
+                ->find($requestId);
+
+            if ($request) {
+                $requestSource = trim((string) ($request->source ?? ''));
+                if ($requestSource !== '' && ! $this->isPlaceholderCustomerSource($requestSource)) {
+                    return $requestSource;
+                }
+            }
+        }
+
+        $lead = $this->findLinkedLead($tenantId, $phone, $meta, $notes);
+        if (! $lead) {
+            return null;
+        }
+
+        $leadSource = trim((string) ($lead->source ?? ''));
+        if ($leadSource === '' || $this->isPlaceholderCustomerSource($leadSource)) {
+            return null;
+        }
+
+        return $leadSource;
+    }
+
+    /**
+     * Leads store free-text address in `location` (rarely `address` / custom fields).
+     * Older rows sometimes stored the country name in `location` — skip that as address.
+     *
+     * @return array{address: string, country: string, city: string}
+     */
+    private function extractLeadAddressFields(Lead $lead): array
+    {
+        $meta = is_array($lead->meta_data) ? $lead->meta_data : [];
+        $custom = is_array($lead->custom_fields ?? null) ? $lead->custom_fields : [];
+
+        $country = trim((string) (
+            $lead->country
+            ?? ($meta['country'] ?? null)
+            ?? ($custom['country'] ?? null)
+            ?? ''
+        ));
+        $city = trim((string) (
+            ($lead->getAttributes()['city'] ?? null)
+            ?? ($meta['city'] ?? null)
+            ?? ($custom['city'] ?? null)
+            ?? ''
+        ));
+
+        $explicitAddress = trim((string) (
+            ($lead->getAttributes()['address'] ?? null)
+            ?? ($meta['address'] ?? null)
+            ?? ($custom['address'] ?? null)
+            ?? ''
+        ));
+        $location = trim((string) ($lead->location ?? ''));
+
+        $address = $explicitAddress;
+        if ($address === '' && $location !== '' && strcasecmp($location, $country) !== 0) {
+            $address = $location;
+        }
+
+        return [
+            'address' => $address,
+            'country' => $country,
+            'city' => $city,
+        ];
+    }
+
+    /**
+     * Fill empty customer address/country/city from linked lead (never overwrite non-empty).
+     */
+    private function applyLeadAddressFields(array &$data, ?Lead $lead): void
+    {
+        if (! $lead) {
+            return;
+        }
+
+        $fields = $this->extractLeadAddressFields($lead);
+        foreach (['address', 'country', 'city'] as $key) {
+            $incoming = trim((string) ($data[$key] ?? ''));
+            if ($incoming === '' && $fields[$key] !== '') {
+                $data[$key] = $fields[$key];
+            }
+        }
+    }
+
+    private function backfillCustomerSources($customers, ?int $tenantId = null): void
+    {
+        if (! $customers) {
+            return;
+        }
+
+        foreach ($customers as $customer) {
+            if (! $customer instanceof Customer) {
+                continue;
+            }
+
+            if (! $this->isPlaceholderCustomerSource($customer->source)) {
+                continue;
+            }
+
+            $meta = is_array($customer->meta_data) ? $customer->meta_data : [];
+            $resolved = $this->resolveOriginalLeadSource(
+                $tenantId ?? ($customer->tenant_id ? (int) $customer->tenant_id : null),
+                $customer->phone ? (string) $customer->phone : null,
+                $meta,
+                $customer->notes ? (string) $customer->notes : null
+            );
+
+            if (! $resolved) {
+                continue;
+            }
+
+            $customer->source = $resolved;
+            try {
+                $customer->save();
+            } catch (\Throwable $e) {
+                // Keep in-memory value for response even if persist fails
+            }
+        }
+    }
+
+    /**
+     * Soft backfill: only when customer address/country/city are empty and linked to a lead.
+     * Never overwrites values the user already set.
+     */
+    private function backfillCustomerAddresses($customers, ?int $tenantId = null): void
+    {
+        if (! $customers) {
+            return;
+        }
+
+        foreach ($customers as $customer) {
+            if (! $customer instanceof Customer) {
+                continue;
+            }
+
+            $needsAddress = trim((string) ($customer->address ?? '')) === '';
+            $needsCountry = trim((string) ($customer->country ?? '')) === '';
+            $needsCity = trim((string) ($customer->city ?? '')) === '';
+            if (! $needsAddress && ! $needsCountry && ! $needsCity) {
+                continue;
+            }
+
+            $meta = is_array($customer->meta_data) ? $customer->meta_data : [];
+            $createdFrom = strtolower(trim((string) ($meta['created_from'] ?? '')));
+            $hasLeadLink = ! empty($meta['lead_id']) || ! empty($meta['leadId'])
+                || ! empty($meta['converted_from_request_id'])
+                || $createdFrom === 'lead'
+                || $createdFrom === 'inventory_request';
+
+            if (! $hasLeadLink) {
+                continue;
+            }
+
+            $lead = $this->findLinkedLead(
+                $tenantId ?? ($customer->tenant_id ? (int) $customer->tenant_id : null),
+                $customer->phone ? (string) $customer->phone : null,
+                $meta,
+                $customer->notes ? (string) $customer->notes : null
+            );
+
+            if (! $lead) {
+                continue;
+            }
+
+            $fields = $this->extractLeadAddressFields($lead);
+            $changed = false;
+
+            if ($needsAddress && $fields['address'] !== '') {
+                $customer->address = $fields['address'];
+                $changed = true;
+            }
+            if ($needsCountry && $fields['country'] !== '') {
+                $customer->country = $fields['country'];
+                $changed = true;
+            }
+            if ($needsCity && $fields['city'] !== '') {
+                $customer->city = $fields['city'];
+                $changed = true;
+            }
+
+            if (! $changed) {
+                continue;
+            }
+
+            try {
+                $customer->save();
+            } catch (\Throwable $e) {
+                // Keep in-memory value for response even if persist fails
+            }
+        }
     }
 
     private function currentTenantId()
@@ -143,6 +423,10 @@ class CustomerController extends Controller
             });
         }
 
+        if ($customerCode = trim((string) $request->input('customer_code', ''))) {
+            $query->where('customer_code', $customerCode);
+        }
+
         if ($type = $request->input('type')) {
             $query->where('type', $type);
         }
@@ -199,9 +483,20 @@ class CustomerController extends Controller
         $query->orderBy($sortBy, $sortOrder);
 
         if ($request->boolean('all')) {
-            return $query->get();
+            $customers = $query->get();
+            $tenantId = $this->currentTenantId() ? (int) $this->currentTenantId() : null;
+            $this->backfillCustomerSources($customers, $tenantId);
+            $this->backfillCustomerAddresses($customers, $tenantId);
+
+            return $customers;
         }
-        return $query->paginate($perPage);
+
+        $paginator = $query->paginate($perPage);
+        $tenantId = $this->currentTenantId() ? (int) $this->currentTenantId() : null;
+        $this->backfillCustomerSources($paginator->getCollection(), $tenantId);
+        $this->backfillCustomerAddresses($paginator->getCollection(), $tenantId);
+
+        return $paginator;
     }
 
     public function report(Request $request)
@@ -273,10 +568,6 @@ class CustomerController extends Controller
         }
         $customerIds = $paginator->pluck('id')->all();
 
-        if (empty($customerIds)) {
-            return response()->json($paginator);
-        }
-
         $customerRows = $paginator->getCollection()->values();
         $customerCodes = $customerRows
             ->pluck('customer_code')
@@ -304,6 +595,12 @@ class CustomerController extends Controller
                 ->all();
         }
 
+        // Same admin visibility gate as QuotationController::index so report totals
+        // align with the Sales Quotations page for the same user.
+        $roleLower = strtolower((string) ($user->role ?? ''));
+        $isAdminOrManager = !empty($user->is_super_admin)
+            || in_array($roleLower, ['admin', 'tenant admin', 'tenant-admin', 'director', 'operation manager'], true);
+
         $matchesCustomer = function ($row, Customer $customer): bool {
             $rowCustomerId = trim((string) ($row->customer_id ?? ''));
             $customerId = trim((string) $customer->id);
@@ -312,38 +609,203 @@ class CustomerController extends Controller
             $customerName = mb_strtolower(trim((string) ($customer->name ?? '')));
             $rowCustomerName = mb_strtolower(trim((string) ($row->customer_name ?? '')));
 
+            // Numeric id (string/int) — also accept zero-padded forms via intval.
             if ($rowCustomerId !== '' && ctype_digit($rowCustomerId)) {
-                return $rowCustomerId === $customerId;
+                if ((string) intval($rowCustomerId) === (string) intval($customerId)) {
+                    return true;
+                }
+            } elseif ($rowCustomerId !== '' && $customerId !== '' && $rowCustomerId === $customerId) {
+                return true;
             }
 
+            // Frontend often stores customer_code in quotations.customer_id.
             if ($customerCode !== '') {
-                if ($rowCustomerId !== '' && $rowCustomerId === $customerCode) {
+                if ($rowCustomerId !== '' && strcasecmp($rowCustomerId, $customerCode) === 0) {
                     return true;
                 }
-                if ($rowCustomerCode !== '' && $rowCustomerCode === $customerCode) {
+                if ($rowCustomerCode !== '' && strcasecmp($rowCustomerCode, $customerCode) === 0) {
                     return true;
                 }
             }
 
-            if ($rowCustomerId !== '') {
+            // Name fallback when there is no conflicting numeric/code id.
+            if ($rowCustomerId !== '' && ctype_digit($rowCustomerId)) {
+                return false;
+            }
+            if ($rowCustomerId !== '' && $customerCode !== '' && strcasecmp($rowCustomerId, $customerCode) !== 0) {
+                // Non-digit id that does not match this customer's code — try name only if id empty.
                 return false;
             }
 
             return $customerName !== '' && $rowCustomerName !== '' && $rowCustomerName === $customerName;
         };
 
+        $normalizeQuotationStatus = function ($row): string {
+            $status = strtolower(trim((string) ($row->status ?? '')));
+            if ($status === '' || $status === 'draft') {
+                return 'draft';
+            }
+            if (in_array($status, ['sent', 'pending'], true)) {
+                return 'sent';
+            }
+            if (in_array($status, ['approved', 'converted', 'accepted'], true)) {
+                return 'approved';
+            }
+            if (in_array($status, ['rejected', 'lost', 'cancelled', 'canceled'], true)) {
+                return 'rejected';
+            }
+
+            return 'draft';
+        };
+
+        // Load quotations with the same visibility rules as /api/quotations (not only
+        // quotes already linked to customers in this report page).
+        $quotationScopeQuery = \App\Models\Quotation::query()
+            ->when($user->tenant_id, fn ($sub) => $sub->where('tenant_id', $user->tenant_id));
+        if (!$isAdminOrManager) {
+            if ($viewableUserIds !== null) {
+                $names = $visibleSalesNames ?? [];
+                if ($names === []) {
+                    $quotationScopeQuery->whereRaw('1 = 0');
+                } else {
+                    $quotationScopeQuery->whereIn('sales_person', $names);
+                }
+            } else {
+                $quotationScopeQuery->where('sales_person', $user->name);
+            }
+        }
+        if ($salespersonFilter !== '' && strcasecmp($salespersonFilter, 'all') !== 0) {
+            $quotationScopeQuery->where('sales_person', $salespersonFilter);
+        }
+        $quotationRows = $quotationScopeQuery->get();
+
+        $quotationStatusCounts = function ($rows) use ($normalizeQuotationStatus): array {
+            $draft = 0;
+            $sent = 0;
+            $approved = 0;
+            $rejected = 0;
+            foreach ($rows as $row) {
+                $bucket = $normalizeQuotationStatus($row);
+                if ($bucket === 'sent') {
+                    $sent++;
+                } elseif ($bucket === 'approved') {
+                    $approved++;
+                } elseif ($bucket === 'rejected') {
+                    $rejected++;
+                } else {
+                    $draft++;
+                }
+            }
+
+            return [
+                'quotationTotal' => $draft + $sent + $approved + $rejected,
+                'quotationDraft' => $draft,
+                'quotationSent' => $sent,
+                'quotationApproved' => $approved,
+                'quotationRejected' => $rejected,
+            ];
+        };
+
+        $scopedQuotationStats = $quotationStatusCounts($quotationRows);
+
+        $quotationTotalsPayload = [
+            'total' => $scopedQuotationStats['quotationTotal'],
+            'draft' => $scopedQuotationStats['quotationDraft'],
+            'sent' => $scopedQuotationStats['quotationSent'],
+            'approved' => $scopedQuotationStats['quotationApproved'],
+            'rejected' => $scopedQuotationStats['quotationRejected'],
+        ];
+
         $isOpenDocument = function ($row): bool {
             $status = strtolower(trim((string) ($row->status ?? '')));
             return $status !== '' && !in_array($status, ['draft', 'cancelled', 'canceled', 'void'], true);
         };
 
-        $applySalesScope = function ($query, ?string $salesPersonColumn = 'sales_person') use ($user, $visibleSalesNames) {
-            if ($visibleSalesNames === null) {
-                return $query;
+        // Same visibility rules as /api/orders (OrderController::index) so report KPI
+        // totals align with the Sales Orders page for the same user — including orphans.
+        $orderScopeQuery = Order::query()
+            ->when($user->tenant_id, fn ($sub) => $sub->where('tenant_id', $user->tenant_id));
+        if (!$isAdminOrManager) {
+            if ($viewableUserIds !== null) {
+                $names = $visibleSalesNames ?? [];
+                if ($names === []) {
+                    $orderScopeQuery->whereRaw('1 = 0');
+                } else {
+                    $orderScopeQuery->whereIn('sales_person', $names);
+                }
+            } else {
+                $orderScopeQuery->where('sales_person', $user->name);
             }
+        }
+        if ($salespersonFilter !== '' && strcasecmp($salespersonFilter, 'all') !== 0) {
+            $orderScopeQuery->where('sales_person', $salespersonFilter);
+        }
+        $ordersRows = $orderScopeQuery->get();
 
-            return $query->whereIn($salesPersonColumn, $visibleSalesNames);
-        };
+        // List page shows all statuses by default — KPI total matches that count.
+        $orderOpenCount = $ordersRows->filter($isOpenDocument)->count();
+        $orderDraftCount = $ordersRows->filter(function ($row) {
+            return strtolower(trim((string) ($row->status ?? ''))) === 'draft';
+        })->count();
+        $orderCancelledCount = $ordersRows->filter(function ($row) {
+            return in_array(strtolower(trim((string) ($row->status ?? ''))), ['cancelled', 'canceled', 'void'], true);
+        })->count();
+
+        $orderTotalsPayload = [
+            'total' => $ordersRows->count(),
+            'open' => $orderOpenCount,
+            'draft' => $orderDraftCount,
+            'cancelled' => $orderCancelledCount,
+        ];
+
+        // Same visibility rules as /api/sales-invoices so report KPI totals align
+        // with the Sales Invoices page for the same user — including orphans.
+        $invoicesScopedQuery = SalesInvoice::query()
+            ->when($user->tenant_id, fn ($sub) => $sub->where('tenant_id', $user->tenant_id));
+        if (!$isAdminOrManager) {
+            if ($viewableUserIds !== null) {
+                $names = $visibleSalesNames ?? [];
+                if ($names === []) {
+                    $invoicesScopedQuery->whereRaw('1 = 0');
+                } else {
+                    $invoicesScopedQuery->whereIn('sales_person', $names);
+                }
+            } else {
+                $invoicesScopedQuery->where('sales_person', $user->name);
+            }
+        }
+        if ($salespersonFilter !== '' && strcasecmp($salespersonFilter, 'all') !== 0) {
+            $invoicesScopedQuery->where('sales_person', $salespersonFilter);
+        }
+        $invoicesRows = $invoicesScopedQuery->get();
+
+        $paymentStatusOfRow = fn ($row) => strtolower(trim((string) ($row->payment_status ?? '')));
+        $postedInvoicesAll = $invoicesRows->filter($isOpenDocument)->values();
+        $invoiceTotalsPayload = [
+            'total' => $invoicesRows->count(),
+            'posted' => $postedInvoicesAll->count(),
+            'billed' => (float) $postedInvoicesAll->sum(fn ($row) => (float) ($row->total ?? 0)),
+            'collected' => (float) $postedInvoicesAll->sum(fn ($row) => (float) ($row->paid_amount ?? 0)),
+            'paid_total' => (float) $postedInvoicesAll->filter(fn ($row) => $paymentStatusOfRow($row) === 'paid')->sum(fn ($row) => (float) ($row->total ?? 0)),
+            'partial_total' => (float) $postedInvoicesAll->filter(fn ($row) => $paymentStatusOfRow($row) === 'partial')->sum(fn ($row) => (float) ($row->total ?? 0)),
+            'unpaid_total' => (float) $postedInvoicesAll->filter(fn ($row) => !in_array($paymentStatusOfRow($row), ['paid', 'partial'], true))->sum(fn ($row) => (float) ($row->total ?? 0)),
+        ];
+
+        if (empty($customerIds)) {
+            $payload = $paginator->toArray();
+            $payload['data'] = [];
+            $payload['quotation_totals'] = array_merge($quotationTotalsPayload, [
+                'orphan_total' => $scopedQuotationStats['quotationTotal'],
+            ]);
+            $payload['order_totals'] = array_merge($orderTotalsPayload, [
+                'orphan_total' => $ordersRows->count(),
+            ]);
+            $payload['invoice_totals'] = array_merge($invoiceTotalsPayload, [
+                'orphan_total' => $invoicesRows->count(),
+            ]);
+
+            return response()->json($payload);
+        }
 
         $extractItemLabel = function ($item): string {
             if (!is_array($item)) {
@@ -377,49 +839,7 @@ class CustomerController extends Controller
             return $qty * $price;
         };
 
-        $ordersRows = $applySalesScope(
-            Order::query()
-                ->when($user->tenant_id, fn ($sub) => $sub->where('tenant_id', $user->tenant_id))
-                ->where(function ($sub) use ($customerIds, $customerCodes, $customerNames) {
-                    $sub->whereIn('customer_id', $customerIds);
-                    if (!empty($customerCodes)) {
-                        $sub->orWhereIn('customer_code', $customerCodes);
-                    }
-                    if (!empty($customerNames)) {
-                        $sub->orWhereIn('customer_name', $customerNames);
-                    }
-                })
-        )->get();
-
-        $invoicesRows = $applySalesScope(
-            SalesInvoice::query()
-                ->when($user->tenant_id, fn ($sub) => $sub->where('tenant_id', $user->tenant_id))
-                ->where(function ($sub) use ($customerIds, $customerCodes, $customerNames) {
-                    $sub->whereIn('customer_id', $customerIds);
-                    if (!empty($customerCodes)) {
-                        $sub->orWhereIn('customer_code', $customerCodes);
-                    }
-                    if (!empty($customerNames)) {
-                        $sub->orWhereIn('customer_name', $customerNames);
-                    }
-                })
-        )->get();
-
-        $quotationRows = $applySalesScope(
-            \App\Models\Quotation::query()
-                ->when($user->tenant_id, fn ($sub) => $sub->where('tenant_id', $user->tenant_id))
-                ->where(function ($sub) use ($customerIds, $customerCodes, $customerNames) {
-                    $stringIds = array_map('strval', $customerIds);
-                    $sub->whereIn('customer_id', $stringIds);
-                    if (!empty($customerCodes)) {
-                        $sub->orWhereIn('customer_id', $customerCodes)
-                            ->orWhereIn('customer_name', $customerNames);
-                    } elseif (!empty($customerNames)) {
-                        $sub->orWhereIn('customer_name', $customerNames);
-                    }
-                }),
-            'sales_person'
-        )->get();
+        // $quotationRows / $ordersRows / $invoicesRows already loaded with list-page scope above.
 
         $opportunityRows = Opportunity::query()
             ->when($user->tenant_id, fn ($sub) => $sub->where('tenant_id', $user->tenant_id))
@@ -435,11 +855,24 @@ class CustomerController extends Controller
             })
             ->get();
 
-        $collection = $paginator->getCollection()->map(function (Customer $customer) use ($ordersRows, $invoicesRows, $quotationRows, $opportunityRows, $matchesCustomer, $extractItemAmount, $extractItemLabel, $isOpenDocument) {
+        $matchedQuotationIds = [];
+        $matchedOrderIds = [];
+        $matchedInvoiceIds = [];
+        $collection = $paginator->getCollection()->map(function (Customer $customer) use ($ordersRows, $invoicesRows, $quotationRows, $opportunityRows, $matchesCustomer, $extractItemAmount, $extractItemLabel, $isOpenDocument, $normalizeQuotationStatus, &$matchedQuotationIds, &$matchedOrderIds, &$matchedInvoiceIds) {
             $matchedOrders = $ordersRows->filter(fn ($row) => $matchesCustomer($row, $customer))->values();
             $matchedInvoices = $invoicesRows->filter(fn ($row) => $matchesCustomer($row, $customer))->values();
             $matchedQuotations = $quotationRows->filter(fn ($row) => $matchesCustomer($row, $customer))->values();
             $matchedOpportunities = $opportunityRows->filter(fn ($row) => $matchesCustomer($row, $customer))->values();
+
+            foreach ($matchedQuotations as $quote) {
+                $matchedQuotationIds[(string) $quote->id] = true;
+            }
+            foreach ($matchedOrders as $order) {
+                $matchedOrderIds[(string) $order->id] = true;
+            }
+            foreach ($matchedInvoices as $invoice) {
+                $matchedInvoiceIds[(string) $invoice->id] = true;
+            }
 
             $openOrders = $matchedOrders->filter($isOpenDocument)->values();
             $postedInvoices = $matchedInvoices->filter($isOpenDocument)->values();
@@ -493,9 +926,12 @@ class CustomerController extends Controller
 
             $invoicesCount = $postedInvoices->count();
             $quotationTotal = $matchedQuotations->count();
-            $quotationConverted = $matchedQuotations->filter(fn ($row) => in_array(strtolower((string) ($row->status ?? '')), ['converted', 'accepted'], true))->count();
-            $quotationPending = $matchedQuotations->filter(fn ($row) => in_array(strtolower((string) ($row->status ?? '')), ['pending', 'sent', 'draft'], true))->count();
-            $quotationLost = $matchedQuotations->filter(fn ($row) => in_array(strtolower((string) ($row->status ?? '')), ['lost', 'cancelled', 'canceled'], true))->count();
+
+            $quotationDraft = $matchedQuotations->filter(fn ($row) => $normalizeQuotationStatus($row) === 'draft')->count();
+            $quotationSent = $matchedQuotations->filter(fn ($row) => $normalizeQuotationStatus($row) === 'sent')->count();
+            $quotationApproved = $matchedQuotations->filter(fn ($row) => $normalizeQuotationStatus($row) === 'approved')->count();
+            $quotationRejected = $matchedQuotations->filter(fn ($row) => $normalizeQuotationStatus($row) === 'rejected')->count();
+
             $opportunitiesCount = $matchedOpportunities->count();
             $revenueBreakdown = [];
 
@@ -526,6 +962,9 @@ class CustomerController extends Controller
                 'project' => $project,
                 'phone' => $customer->phone,
                 'email' => $customer->email,
+                'address' => $customer->address,
+                'country' => $customer->country,
+                'city' => $customer->city,
                 'joinedDate' => optional($customer->created_at)->toDateString(),
                 'totalRevenue' => $collectedTotal,
                 'billedTotal' => $billedTotal,
@@ -546,17 +985,60 @@ class CustomerController extends Controller
                 'invoiceUnpaidCount' => $unpaidCount,
                 'invoicesCount' => $invoicesCount,
                 'quotationTotal' => $quotationTotal,
-                'quotationConverted' => $quotationConverted,
-                'quotationPending' => $quotationPending,
-                'quotationLost' => $quotationLost,
+                'quotationDraft' => $quotationDraft,
+                'quotationSent' => $quotationSent,
+                'quotationApproved' => $quotationApproved,
+                'quotationRejected' => $quotationRejected,
+                // Backward-compatible aliases for older frontend builds
+                'quotationPending' => $quotationSent,
+                'quotationConverted' => $quotationApproved,
+                'quotationLost' => $quotationRejected,
                 'opportunitiesCount' => $opportunitiesCount,
                 'revenueBreakdown' => $revenueBreakdown,
             ];
         });
 
+        $orphanQuotations = $quotationRows->filter(
+            fn ($row) => !isset($matchedQuotationIds[(string) $row->id])
+        );
+        $orphanStats = $quotationStatusCounts($orphanQuotations);
+
+        $orphanOrders = $ordersRows->filter(
+            fn ($row) => !isset($matchedOrderIds[(string) $row->id])
+        );
+        $orphanOrderOpen = $orphanOrders->filter($isOpenDocument)->count();
+        $orphanOrderDraft = $orphanOrders->filter(function ($row) {
+            return strtolower(trim((string) ($row->status ?? ''))) === 'draft';
+        })->count();
+        $orphanOrderCancelled = $orphanOrders->filter(function ($row) {
+            return in_array(strtolower(trim((string) ($row->status ?? ''))), ['cancelled', 'canceled', 'void'], true);
+        })->count();
+
         $paginator->setCollection($collection);
 
-        return response()->json($paginator);
+        $payload = $paginator->toArray();
+        $payload['quotation_totals'] = array_merge($quotationTotalsPayload, [
+            'orphan_total' => $orphanStats['quotationTotal'],
+            'orphan_draft' => $orphanStats['quotationDraft'],
+            'orphan_sent' => $orphanStats['quotationSent'],
+            'orphan_approved' => $orphanStats['quotationApproved'],
+            'orphan_rejected' => $orphanStats['quotationRejected'],
+        ]);
+        $payload['order_totals'] = array_merge($orderTotalsPayload, [
+            'orphan_total' => $orphanOrders->count(),
+            'orphan_open' => $orphanOrderOpen,
+            'orphan_draft' => $orphanOrderDraft,
+            'orphan_cancelled' => $orphanOrderCancelled,
+        ]);
+
+        $orphanInvoices = $invoicesRows->filter(
+            fn ($row) => !isset($matchedInvoiceIds[(string) $row->id])
+        );
+        $payload['invoice_totals'] = array_merge($invoiceTotalsPayload, [
+            'orphan_total' => $orphanInvoices->count(),
+        ]);
+
+        return response()->json($payload);
     }
 
     /**
@@ -564,7 +1046,7 @@ class CustomerController extends Controller
      */
     public function store(Request $request)
     {
-        $tenantId = $this->currentTenantId();
+        $tenantId = $this->currentTenantId() ? (int) $this->currentTenantId() : null;
         $camelCaseAliases = [
             'companyName' => 'company_name',
             'addressLine' => 'address',
@@ -601,7 +1083,7 @@ class CustomerController extends Controller
             ],
             'email' => 'nullable|email|max:255',
             'type' => 'nullable|string|max:50',
-            'source' => 'nullable|string|max:100',
+            'source' => 'required|string|max:100',
             'company_name' => 'nullable|string|max:255',
             'tax_number' => 'nullable|string|max:50',
             'country' => 'nullable|string|max:100',
@@ -610,8 +1092,10 @@ class CustomerController extends Controller
             'assigned_to' => 'nullable|string|max:255',
             'created_by' => 'nullable|string|max:255',
             'notes' => 'nullable|string',
+            'meta_data' => 'nullable|array',
         ], [
             'phone.unique' => 'رقم التليفون مسجل بالفعل لعميل آخر',
+            'source.required' => 'المصدر مطلوب',
         ]);
 
         if ($validator->fails()) {
@@ -619,6 +1103,50 @@ class CustomerController extends Controller
         }
 
         $validatedData = $validator->validated();
+
+        // Always persist a creator name (lead convert / import often omit created_by)
+        $createdBy = trim((string) ($validatedData['created_by'] ?? ''));
+        if ($createdBy === '') {
+            $validatedData['created_by'] = Auth::user()?->name ?: 'System';
+        }
+
+        $metaData = is_array($validatedData['meta_data'] ?? null) ? $validatedData['meta_data'] : [];
+        if ($request->filled('lead_id') && empty($metaData['lead_id'])) {
+            $metaData['lead_id'] = (int) $request->input('lead_id');
+        }
+
+        $incomingSource = trim((string) ($validatedData['source'] ?? ''));
+        $linkedLead = null;
+        if ($this->isPlaceholderCustomerSource($incomingSource) || ! empty($metaData['lead_id']) || ! empty($metaData['converted_from_request_id'])) {
+            $linkedLead = $this->findLinkedLead(
+                $tenantId,
+                $validatedData['phone'] ?? null,
+                $metaData,
+                $validatedData['notes'] ?? null
+            );
+
+            $resolvedSource = $this->resolveOriginalLeadSource(
+                $tenantId,
+                $validatedData['phone'] ?? null,
+                $metaData,
+                $validatedData['notes'] ?? null
+            );
+            if ($resolvedSource) {
+                $validatedData['source'] = $resolvedSource;
+            } elseif ($this->isPlaceholderCustomerSource($incomingSource)) {
+                // Never persist conversion labels as Source
+                $validatedData['source'] = 'Unknown';
+            }
+        }
+
+        // Copy lead address/country/city onto new customer when those fields are empty
+        $this->applyLeadAddressFields($validatedData, $linkedLead);
+
+        if (! empty($metaData)) {
+            $validatedData['meta_data'] = $metaData;
+        } else {
+            unset($validatedData['meta_data']);
+        }
 
         // 2. Validate Custom Fields
         $entity = Entity::where('key', 'customers')->first();
@@ -753,7 +1281,12 @@ class CustomerController extends Controller
      */
     public function show($id)
     {
-        return Customer::with('customFieldValues.field')->findOrFail($id);
+        $customer = Customer::with('customFieldValues.field')->findOrFail($id);
+        $tenantId = $this->currentTenantId() ? (int) $this->currentTenantId() : null;
+        $this->backfillCustomerSources(collect([$customer]), $tenantId);
+        $this->backfillCustomerAddresses(collect([$customer]), $tenantId);
+
+        return $customer;
     }
 
     /**
@@ -782,7 +1315,7 @@ class CustomerController extends Controller
             ],
             'email' => 'nullable|email|max:255',
             'type' => 'nullable|string|max:50',
-            'source' => 'nullable|string|max:100',
+            'source' => 'sometimes|required|string|max:100',
             'company_name' => 'nullable|string|max:255',
             'tax_number' => 'nullable|string|max:50',
             'country' => 'nullable|string|max:100',
@@ -793,6 +1326,7 @@ class CustomerController extends Controller
             'notes' => 'nullable|string',
         ], [
             'phone.unique' => 'رقم التليفون مسجل بالفعل لعميل آخر',
+            'source.required' => 'المصدر مطلوب',
         ]);
 
         if ($validator->fails()) {

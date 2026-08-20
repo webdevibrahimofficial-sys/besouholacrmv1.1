@@ -33,6 +33,7 @@ import { formatPhoneForDisplay, getPhoneDigits, getPhoneLines } from '@shared/ut
 import { getDefaultDialCode, isMobileMaskEnabled } from '@shared/utils/crmPhone'
 import { formatCrmCalendarDateTime, formatCrmDateTime } from '@shared/utils/crmDateTime'
 import { buildLeadTransferPayload } from '@shared/utils/leadTransfer'
+import { pickLeadAddressFields } from '@shared/utils/leadToCustomerFields'
 import { resolveDuplicateOriginalLead } from '../utils/resolveDuplicateOriginalLead'
 import {
   clearStoredLeadsListState,
@@ -203,15 +204,18 @@ export const Leads = () => {
       ? lead.tags
       : (lead?.tags ? String(lead.tags).split(',').map(s => s.trim()).filter(Boolean) : (lead?.source ? [String(lead.source)] : []))
 
+    const { country, city, addressLine } = pickLeadAddressFields(lead)
+
     const payload = {
       name,
       phone,
       email: String(lead?.email || '').trim(),
       type: String(lead?.type || (lead?.company ? 'Company' : 'Individual')),
       companyName: lead?.company || '',
-      country: String(lead?.country || '').trim(),
-      city: String(lead?.city || '').trim(),
-      addressLine: String(lead?.address || '').trim(),
+      country,
+      city,
+      addressLine,
+      source: String(lead?.source || '').trim() || 'Unknown',
       contacts: lead?.company ? [{
         name: String(lead?.name || '').trim(),
         phone: String(lead?.phone || '').trim(),
@@ -220,6 +224,10 @@ export const Leads = () => {
       tags: tagsArr,
       notes: String(lead?.notes || '').trim(),
       assignedSalesRep: String(lead?.sales || lead?.salesPerson || lead?.assignedTo || '').trim(),
+      meta_data: {
+        created_from: 'lead',
+        lead_id: lead?.id ? Number(lead.id) || lead.id : undefined,
+      },
     }
 
     const res = await api.post('/api/customers', payload)

@@ -121,13 +121,12 @@ class ProcessRotationRules extends Command
             return;
         }
 
-        $stageDelay = Stage::query()
+        $stages = Stage::query()
             ->withoutGlobalScope('tenant')
             ->where(function ($q) use ($tenantId) {
                 $q->whereNull('tenant_id')->orWhere('tenant_id', $tenantId);
             })
-            ->pluck('delay_time', 'name')
-            ->toArray();
+            ->get(['id', 'tenant_id', 'name', 'name_ar', 'type', 'delay_time']);
 
         $actionRows = LeadAction::query()
             ->whereIn('details->status', ['pending', 'in_progress', 'in-progress', 'in progress'])
@@ -162,7 +161,8 @@ class ProcessRotationRules extends Command
         $now = Carbon::now(config('app.timezone'));
 
         foreach ($leads as $lead) {
-            $delayHours = (int) ($stageDelay[(string) $lead->stage] ?? 0);
+            // Per-stage delay from Pipeline Stages Setup (delay_time hours).
+            $delayHours = $engine->resolveStageDelayHours($lead, $tenantId, $stages);
             if ($delayHours <= 0) {
                 continue;
             }

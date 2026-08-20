@@ -27,7 +27,7 @@ const SalesOrdersImportModal = ({ onClose, onImport, isRTL }) => {
       'Created By',
       'Item Name',
       'Item Quantity',
-      'Item Price'
+      'Item Amount'
     ]
 
     const dummyData = [
@@ -135,7 +135,7 @@ const SalesOrdersImportModal = ({ onClose, onImport, isRTL }) => {
                 id: 1,
                 name: findKey(row, ['Item Name', 'اسم الصنف']),
                 quantity: Number(findKey(row, ['Item Quantity', 'الكمية'])) || 1,
-                price: Number(findKey(row, ['Item Price', 'السعر'])) || 0
+                price: Number(findKey(row, ['Item Amount', 'Item Price', 'المبلغ', 'السعر', 'Amount', 'Price'])) || 0
             }] : [],
             createdAt: new Date().toISOString()
         }))

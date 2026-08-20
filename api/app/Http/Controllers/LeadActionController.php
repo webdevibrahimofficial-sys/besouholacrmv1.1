@@ -827,8 +827,8 @@ class LeadActionController extends Controller
                 $ids = array_map('intval', $employeeIds);
             } else {
                 $roleLower = strtolower($user->role ?? '');
-                $isAdminOrManager = $user->is_super_admin || 
-                                    in_array($roleLower, ['admin', 'tenant admin', 'tenant-admin', 'director', 'operation manager']);
+                $isAdminOrManager = $user->is_super_admin ||
+                                    in_array($roleLower, ['admin', 'tenant admin', 'tenant-admin', 'director', 'operation manager', 'sales admin', 'branch manager'], true);
 
                 if (!$isAdminOrManager) {
                     $viewableUserIds = $this->getViewableUserIds($user);
@@ -849,10 +849,13 @@ class LeadActionController extends Controller
                 }
             }
 
-            if ($shouldFilter) {
-                $query->whereIn('user_id', $ids);
-            } elseif (!empty($ids)) {
-                $query->whereIn('user_id', $ids);
+            if ($shouldFilter || !empty($ids)) {
+                $query->where(function ($q) use ($ids) {
+                    $q->whereIn('user_id', $ids)
+                        ->orWhereHas('lead', function ($leadQuery) use ($ids) {
+                            $leadQuery->whereIn('assigned_to', $ids);
+                        });
+                });
             }
         }
 

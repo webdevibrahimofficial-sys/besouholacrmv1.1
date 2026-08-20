@@ -27,7 +27,7 @@ const SalesInvoicesImportModal = ({ onClose, onImport, isRTL }) => {
       'Item Category',
       'Item Name',
       'Item Quantity',
-      'Item Price',
+      'Item Amount',
       'Item Discount',
       'Item Expiry Date'
     ]
@@ -118,7 +118,7 @@ const SalesInvoicesImportModal = ({ onClose, onImport, isRTL }) => {
 
         const mappedData = jsonData.map(row => {
           const itemQty = Number(findKey(row, ['Item Quantity', 'الكمية', 'Quantity']) || 1)
-          const itemPrice = Number(findKey(row, ['Item Price', 'السعر', 'Price']) || 0)
+          const itemPrice = Number(findKey(row, ['Item Amount', 'Item Price', 'المبلغ', 'السعر', 'Amount', 'Price']) || 0)
           const itemDiscount = Number(findKey(row, ['Item Discount', 'الخصم', 'Discount']) || 0)
           const tax = Number(findKey(row, ['Tax Amount', 'قيمة الضريبة', 'Tax']) || 0)
           
@@ -312,7 +312,7 @@ const SalesInvoicesImportModal = ({ onClose, onImport, isRTL }) => {
           )}
 
           <div className="mt-3 text-xs" style={{ color: isDark ? '#9ca3af' : '#6b7280' }}>
-            {isRTL ? 'الحقول المدعومة: اسم العميل، التاريخ، تفاصيل العناصر (الاسم، السعر، الكمية)...' : 'Supported Fields: Customer Name, Date, Item Details (Name, Price, Qty)...'}
+            {isRTL ? 'الحقول المدعومة: اسم العميل، التاريخ، تفاصيل العناصر (الاسم، المبلغ، الكمية)...' : 'Supported Fields: Customer Name, Date, Item Details (Name, Amount, Qty)...'}
           </div>
         </div>
       </div>

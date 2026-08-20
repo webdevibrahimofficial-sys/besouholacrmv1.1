@@ -1080,7 +1080,7 @@ export const Dashboard = () => {
                 <div
                   key={'__fixed_total__'}
                   className={`relative overflow-hidden rounded-2xl p-1 group border-2 border-blue-400 bg-gradient-to-br from-blue-100 via-blue-100 to-blue-100 backdrop-blur-sm shadow-blue-300/30 shadow-2xl hover:shadow-3xl transform hover:scale-[1.02] hover:-translate-y-1 transition-all duration-500`}
-                  onClick={() => navigate('/leads')}
+                  onClick={() => navigate(buildLeadsStageLink(''))}
                   role="button"
                   tabIndex={0}
                 >

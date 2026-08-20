@@ -1,13 +1,73 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useReactToPrint } from 'react-to-print'
-import { FaChevronDown, FaDownload, FaFileExcel, FaFileImage, FaFileInvoiceDollar, FaPaperclip, FaPrint, FaTimes } from 'react-icons/fa'
+import { FaChevronDown, FaDownload, FaEye, FaFileExcel, FaFileImage, FaFileInvoiceDollar, FaPaperclip, FaPrint, FaTimes } from 'react-icons/fa'
 import { useAppState } from '@shared/context/AppStateProvider'
 import { extractTenantCompanyProfile } from '@shared/utils/tenantCompanyProfile'
+import { resolveDocumentCustomerAddress } from '@shared/utils/customerAddress'
 import { useTheme } from '@shared/context/ThemeProvider'
-import { api } from '../utils/api'
+import { api, getApiUrl } from '../utils/api'
+import { getQuotationLineDiscountAmount, getQuotationLineTotal } from './QuotationsFormModal'
 
-function SalesOrderPreviewModal({ isOpen, onClose, order, onCreateInvoice }) {
+function resolvePublicAttachmentUrl(pathOrUrl) {
+  if (!pathOrUrl) return ''
+  const value = String(pathOrUrl).trim()
+  if (!value) return ''
+  if (value.startsWith('blob:') || value.startsWith('data:')) return value
+
+  let relative = value
+  try {
+    if (/^https?:\/\//i.test(value)) {
+      const parsed = new URL(value)
+      const storageIdx = parsed.pathname.indexOf('/storage/')
+      if (storageIdx !== -1) {
+        relative = parsed.pathname.slice(storageIdx + '/storage/'.length)
+      } else {
+        const publicIdx = parsed.pathname.indexOf('/api/public-files/')
+        if (publicIdx !== -1) {
+          relative = parsed.pathname.slice(publicIdx + '/api/public-files/'.length)
+        } else {
+          return value
+        }
+      }
+    } else {
+      relative = value
+        .replace(/^\/+/, '')
+        .replace(/^storage\//, '')
+        .replace(/^api\/public-files\//, '')
+    }
+  } catch {
+    relative = value.replace(/^\/+/, '').replace(/^storage\//, '')
+  }
+
+  relative = String(relative || '').replace(/^\/+/, '')
+  if (!relative) return ''
+
+  const base = String(getApiUrl() || '/api').replace(/\/+$/, '')
+  if (base.endsWith('/api')) return `${base}/public-files/${relative}`
+  return `${base}/api/public-files/${relative}`
+}
+
+async function downloadPublicAttachment(url, filename) {
+  if (!url) return
+  try {
+    const response = await fetch(url, { credentials: 'include' })
+    if (!response.ok) throw new Error('download_failed')
+    const blob = await response.blob()
+    const objectUrl = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = objectUrl
+    anchor.download = filename || 'attachment'
+    document.body.appendChild(anchor)
+    anchor.click()
+    anchor.remove()
+    URL.revokeObjectURL(objectUrl)
+  } catch {
+    window.open(url, '_blank', 'noopener,noreferrer')
+  }
+}
+
+function SalesOrderPreviewModal({ isOpen, onClose, order, onCreateInvoice, customers = [] }) {
   const { i18n } = useTranslation()
   const isRTL = i18n.dir() === 'rtl'
   const { company, crmSettings } = useAppState()
@@ -44,13 +104,13 @@ function SalesOrderPreviewModal({ isOpen, onClose, order, onCreateInvoice }) {
       issueDate: order.createdAt || order.created_at || order.date || null,
       deliveryDate: order.deliveryDate || order.delivery_date || null,
       customerName: order.customerName || order.customer_name || (isRTL ? 'عميل غير محدد' : 'Unnamed customer'),
-      customerAddress: order.customerAddress || order.customer_address || order.address || order.customer?.address || '',
+      customerAddress: resolveDocumentCustomerAddress(order, customers),
       paymentTerms: order.paymentTerms || order.payment_terms || '',
       status: order.status || 'Draft',
       currency: currencyCode,
       notes: order.notes || '',
     }
-  }, [currencyCode, isRTL, order])
+  }, [currencyCode, customers, isRTL, order])
 
   const formatBytes = (bytes) => {
     const n = Number(bytes || 0)
@@ -75,25 +135,47 @@ function SalesOrderPreviewModal({ isOpen, onClose, order, onCreateInvoice }) {
   }
 
   useEffect(() => {
-    if (!showAttachments || !order?.id) return
+    if (!showAttachments) return
 
+    const fallbackFromOrder = () => {
+      const meta = order?.meta_data || order?.metaData || {}
+      const listed = Array.isArray(order?.attachments)
+        ? order.attachments
+        : (Array.isArray(meta.attachments) ? meta.attachments : [])
+      return Array.isArray(listed) ? listed : []
+    }
+
+    if (!order?.id) {
+      setAttachments(fallbackFromOrder())
+      setAttachmentsError('')
+      setAttachmentsLoading(false)
+      return
+    }
+
+    let cancelled = false
     const loadAttachments = async () => {
       setAttachmentsLoading(true)
       setAttachmentsError('')
       try {
         const res = await api.get(`/api/sales-orders/${order.id}/attachments`)
         const list = Array.isArray(res.data) ? res.data : (Array.isArray(res.data?.data) ? res.data.data : [])
-        setAttachments(list)
+        if (!cancelled) setAttachments(list.length ? list : fallbackFromOrder())
       } catch {
-        setAttachments([])
-        setAttachmentsError(isRTL ? 'فشل تحميل المرفقات' : 'Failed to load attachments')
+        if (!cancelled) {
+          const fallback = fallbackFromOrder()
+          setAttachments(fallback)
+          if (!fallback.length) {
+            setAttachmentsError(isRTL ? 'فشل تحميل المرفقات' : 'Failed to load attachments')
+          }
+        }
       } finally {
-        setAttachmentsLoading(false)
+        if (!cancelled) setAttachmentsLoading(false)
       }
     }
 
     loadAttachments()
-  }, [isRTL, order?.id, showAttachments])
+    return () => { cancelled = true }
+  }, [isRTL, order, showAttachments])
 
   useEffect(() => {
     if (!isOpen) setShowInvoiceDropdown(false)
@@ -158,7 +240,15 @@ function SalesOrderPreviewModal({ isOpen, onClose, order, onCreateInvoice }) {
 
   const formatItemMeta = (item) => {
     const meta = [String(item.type || '').trim(), String(item.category || '').trim()].filter(Boolean)
-    return meta.length ? `(${meta.join(', ')})` : ''
+    const addonNames = (Array.isArray(item.addons) ? item.addons : [])
+      .map((addon) => String(addon?.name || '').trim())
+      .filter(Boolean)
+    const base = meta.length ? `(${meta.join(', ')})` : ''
+    if (!addonNames.length) return base
+    const addonsLabel = isRTL
+      ? `إضافات: ${addonNames.join('، ')}`
+      : `Add-ons: ${addonNames.join(', ')}`
+    return base ? `${base} · ${addonsLabel}` : addonsLabel
   }
 
   if (!isOpen || !normalizedOrder) return null
@@ -304,28 +394,45 @@ function SalesOrderPreviewModal({ isOpen, onClose, order, onCreateInvoice }) {
                 <div className="space-y-3">
                   {attachments.map((attachment) => {
                     const name = attachment?.name || attachment?.file_name || attachment?.filename || (isRTL ? 'ملف' : 'File')
-                    const url = attachment?.url || attachment?.download_url || attachment?.path
+                    const url = resolvePublicAttachmentUrl(attachment?.url || attachment?.download_url || attachment?.path)
                     const meta = [formatBytes(attachment?.size), attachment?.created_at ? new Date(attachment.created_at).toLocaleDateString() : ''].filter(Boolean).join(' • ')
                     const { Icon, tone } = iconForAttachment(name, attachment?.mime)
 
                     return (
-                      <button
+                      <div
                         key={attachment?.id || name}
-                        type="button"
-                        onClick={() => url && window.open(url, '_blank')}
-                        className="flex w-full items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-left transition hover:border-sky-200 hover:bg-sky-50"
+                        className="flex w-full items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3"
                       >
-                        <div className="flex items-center gap-3">
-                          <div className={`inline-flex h-10 w-10 items-center justify-center rounded-xl ${tone}`}>
+                        <div className="flex min-w-0 items-center gap-3">
+                          <div className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${tone}`}>
                             <Icon />
                           </div>
-                          <div>
-                            <div className="text-sm font-semibold text-slate-900">{name}</div>
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-semibold text-slate-900" title={name}>{name}</div>
                             {meta ? <div className="text-xs text-slate-500">{meta}</div> : null}
                           </div>
                         </div>
-                        <FaDownload className="text-slate-400" />
-                      </button>
+                        <div className="flex shrink-0 items-center gap-1.5">
+                          <button
+                            type="button"
+                            disabled={!url}
+                            onClick={() => url && window.open(url, '_blank', 'noopener,noreferrer')}
+                            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-sky-600 transition hover:border-sky-200 hover:bg-sky-50 disabled:cursor-not-allowed disabled:opacity-40"
+                            title={isRTL ? 'عرض' : 'View'}
+                          >
+                            <FaEye size={14} />
+                          </button>
+                          <button
+                            type="button"
+                            disabled={!url}
+                            onClick={() => downloadPublicAttachment(url, name)}
+                            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 transition hover:border-slate-300 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
+                            title={isRTL ? 'تحميل' : 'Download'}
+                          >
+                            <FaDownload size={14} />
+                          </button>
+                        </div>
+                      </div>
                     )
                   })}
                 </div>
@@ -361,9 +468,9 @@ function SalesOrderPreviewModal({ isOpen, onClose, order, onCreateInvoice }) {
                 {showInvoiceDropdown ? (
                   <div className={`absolute top-full z-[80] mt-2 w-64 overflow-hidden rounded-2xl border shadow-xl ${isRTL ? 'left-0' : 'right-0'} ${isDark ? 'border-slate-700 bg-slate-900' : 'border-slate-200 bg-white'}`}>
                     {[
-                      { key: 'Full', label: isRTL ? 'فاتورة كاملة' : 'Full Invoice' },
-                      { key: 'Partial', label: isRTL ? 'فاتورة جزئية' : 'Partial Invoice' },
-                      { key: 'Advance', label: isRTL ? 'فاتورة دفعة مقدمة' : 'Advance Invoice' },
+                      { key: 'Full', label: isRTL ? 'دفع كامل' : 'Full Payment' },
+                      { key: 'Partial', label: isRTL ? 'دفع جزئي' : 'Partial Payment' },
+                      { key: 'Advance', label: isRTL ? 'دفع مؤجل' : 'Deferred Payment' },
                     ].map((option) => (
                       <button
                         key={option.key}
@@ -480,7 +587,7 @@ function SalesOrderPreviewModal({ isOpen, onClose, order, onCreateInvoice }) {
                             {isRTL ? 'الكمية' : 'Qty'}
                           </th>
                           <th className="px-4 py-4 text-end text-xs font-semibold uppercase tracking-[0.24em]">
-                            {isRTL ? 'سعر الوحدة' : 'Unit Price'}
+                            {isRTL ? 'المبلغ' : 'Amount'}
                           </th>
                           <th className="px-4 py-4 text-end text-xs font-semibold uppercase tracking-[0.24em]">
                             {isRTL ? 'الخصم' : 'Discount'}
@@ -495,8 +602,8 @@ function SalesOrderPreviewModal({ isOpen, onClose, order, onCreateInvoice }) {
                           normalizedOrder.items.map((item, index) => {
                             const quantity = getItemQuantity(item)
                             const unitPrice = Number(item.price || item.unit_price || item.unitPrice || 0)
-                            const discount = Number(item.discount || 0)
-                            const lineTotal = (quantity * unitPrice) - discount
+                            const discount = getQuotationLineDiscountAmount(item)
+                            const lineTotal = getQuotationLineTotal(item)
 
                             return (
                               <tr key={`${item.id || item.name || 'item'}-${index}`} className={`${itemRowClass} print-light-row print-light-text print-light-border`}>

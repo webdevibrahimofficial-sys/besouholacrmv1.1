@@ -342,39 +342,63 @@ class ItemStockService
 
     public function returnInvoiceItems(SalesInvoice $invoice, array $lines): array
     {
-        $status = strtolower((string) ($invoice->status ?? ''));
-        if (!in_array($status, ['posted', 'paid', 'partial', 'unpaid'], true)) {
+        $status = strtolower(trim((string) ($invoice->status ?? '')));
+        $allowed = ['posted', 'paid', 'partial', 'partially paid', 'unpaid', 'overdue'];
+        if (!in_array($status, $allowed, true)) {
             throw ValidationException::withMessages([
-                'status' => 'Returns are allowed only on posted invoices.',
+                'status' => 'Refunds are allowed only on posted invoices.',
             ]);
         }
 
         $meta = is_array($invoice->meta_data) ? $invoice->meta_data : [];
+        if (!empty($meta['stock_reversed'])) {
+            throw ValidationException::withMessages([
+                'status' => 'Stock for this invoice was already fully reversed.',
+            ]);
+        }
+
         $returned = is_array($meta['returned_quantities'] ?? null) ? $meta['returned_quantities'] : [];
         $applied = [];
+        $tenantId = (int) ($invoice->tenant_id ?? 0) ?: null;
 
         foreach ($lines as $line) {
+            $line = is_array($line) ? $line : (array) $line;
             $qty = max(0, (int) ($line['quantity'] ?? 0));
             if ($qty < 1) {
                 continue;
             }
 
-            $item = $this->resolveItemFromLine($line);
+            $item = $this->resolveItemFromLine($line, $tenantId);
             if (!$item) {
+                $label = trim((string) ($line['name'] ?? $line['item_id'] ?? 'item'));
                 throw ValidationException::withMessages([
-                    'item' => 'Return item was not found.',
+                    'item' => "Refund item was not found: {$label}. Ensure invoice lines include a catalog item.",
                 ]);
             }
 
             $invoicedQty = $this->invoicedQuantityForItem($invoice, $item);
-            $already = (int) ($returned[(string) $item->id] ?? 0);
-            if ($already + $qty > $invoicedQty) {
+            if ($invoicedQty < 1) {
                 throw ValidationException::withMessages([
-                    'quantity' => "Return quantity for {$item->name} exceeds invoiced quantity.",
+                    'item' => "Item {$item->name} is not on this invoice (or has no resolvable stock line).",
                 ]);
             }
 
-            $this->returnSold($item, $qty, 'sales_invoice_return', (int) $invoice->id);
+            $already = (int) ($returned[(string) $item->id] ?? $returned[$item->id] ?? 0);
+            if ($already + $qty > $invoicedQty) {
+                throw ValidationException::withMessages([
+                    'quantity' => "Refund quantity for {$item->name} exceeds invoiced quantity ({$invoicedQty}).",
+                ]);
+            }
+
+            try {
+                $this->returnSold($item, $qty, 'sales_invoice_return', (int) $invoice->id);
+            } catch (ValidationException $e) {
+                $sold = $this->soldOf($item);
+                throw ValidationException::withMessages([
+                    'quantity' => "Cannot refund {$item->name}: only {$sold} sold in stock (requested {$qty}). Post the invoice so stock is sold first.",
+                ]);
+            }
+
             $returned[(string) $item->id] = $already + $qty;
             $applied[] = [
                 'item_id' => $item->id,
@@ -384,6 +408,37 @@ class ItemStockService
         }
 
         $meta['returned_quantities'] = $returned;
+
+        // Persist resolved catalog ids on invoice lines so later refunds match reliably.
+        $invoiceItems = is_array($invoice->items) ? $invoice->items : [];
+        $patched = false;
+        foreach ($applied as $row) {
+            $appliedId = (int) ($row['item_id'] ?? 0);
+            $appliedName = trim((string) ($row['name'] ?? ''));
+            if ($appliedId < 1) {
+                continue;
+            }
+            foreach ($invoiceItems as $i => $line) {
+                $line = is_array($line) ? $line : (array) $line;
+                $lid = (int) ($line['item_id'] ?? $line['itemId'] ?? $line['product_id'] ?? 0);
+                $lname = trim((string) ($line['name'] ?? $line['item_name'] ?? $line['product_name'] ?? ''));
+                if ($lid === $appliedId) {
+                    continue;
+                }
+                if ($lid > 0) {
+                    continue;
+                }
+                if ($appliedName !== '' && $lname !== '' && strcasecmp($lname, $appliedName) === 0) {
+                    $line['item_id'] = $appliedId;
+                    $invoiceItems[$i] = $line;
+                    $patched = true;
+                }
+            }
+        }
+        if ($patched) {
+            $invoice->items = $invoiceItems;
+        }
+
         $invoice->meta_data = $meta;
         $invoice->save();
 
@@ -572,13 +627,14 @@ class ItemStockService
     {
         $lines = [];
         $items = is_array($invoice->items) ? $invoice->items : [];
+        $tenantId = (int) ($invoice->tenant_id ?? 0) ?: null;
         foreach ($items as $row) {
             $row = is_array($row) ? $row : (array) $row;
             $qty = (int) ($row['quantity'] ?? $row['qty'] ?? 0);
             if ($qty < 1) {
                 continue;
             }
-            $item = $this->resolveItemFromLine($row);
+            $item = $this->resolveItemFromLine($row, $tenantId);
             if (!$item) {
                 continue;
             }
@@ -598,11 +654,15 @@ class ItemStockService
         return $total;
     }
 
-    private function resolveItemFromLine(array $line): ?Item
+    private function resolveItemFromLine(array $line, ?int $tenantId = null): ?Item
     {
         $itemId = (int) ($line['item_id'] ?? $line['itemId'] ?? $line['item'] ?? $line['product_id'] ?? 0);
         if ($itemId > 0) {
-            $found = Item::query()->find($itemId);
+            $q = Item::query()->whereKey($itemId);
+            if ($tenantId) {
+                $q->where('tenant_id', $tenantId);
+            }
+            $found = $q->first();
             if ($found) {
                 return $found;
             }
@@ -613,7 +673,12 @@ class ItemStockService
             return null;
         }
 
-        return Item::query()->where('name', $name)->first();
+        $q = Item::query()->where('name', $name);
+        if ($tenantId) {
+            $q->where('tenant_id', $tenantId);
+        }
+
+        return $q->first();
     }
 
     /**

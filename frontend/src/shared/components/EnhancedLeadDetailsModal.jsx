@@ -23,6 +23,7 @@ import { getEmailTemplates } from '../../services/emailTemplateService';
 import { getLeadPermissionFlags } from '../../services/leadPermissions';
 import { getPhoneDigits, getPhoneLines } from '../utils/phoneDisplay'
 import { buildLeadTransferPayload } from '../utils/leadTransfer'
+import { pickLeadAddressFields } from '../utils/leadToCustomerFields'
 import { formatCrmDateTime, formatCrmCalendarDateTime, formatCrmDate } from '@shared/utils/crmDateTime'
 
 const stripStageChangedSuffix = (text) =>
@@ -1108,15 +1109,18 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
           ? sourceLead.tags
           : (sourceLead?.tags ? String(sourceLead.tags).split(',').map((s) => s.trim()).filter(Boolean) : (sourceLead?.source ? [String(sourceLead.source)] : []));
 
+        const { country, city, addressLine } = pickLeadAddressFields(sourceLead);
+
         const payload = {
           name,
           phone,
           email: String(sourceLead?.email || '').trim(),
           type: String(sourceLead?.type || (sourceLead?.company ? 'Company' : 'Individual')),
           companyName: sourceLead?.company || '',
-          country: String(sourceLead?.country || '').trim(),
-          city: String(sourceLead?.city || '').trim(),
-          addressLine: String(sourceLead?.address || '').trim(),
+          country,
+          city,
+          addressLine,
+          source: String(sourceLead?.source || '').trim() || 'Unknown',
           contacts: sourceLead?.company ? [{
             name: String(sourceLead?.name || '').trim(),
             phone: String(sourceLead?.phone || '').trim(),
@@ -1125,6 +1129,10 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
           tags: tagsArr,
           notes: String(sourceLead?.notes || '').trim(),
           assignedSalesRep: String(sourceLead?.sales || sourceLead?.salesPerson || sourceLead?.assignedTo || '').trim(),
+          meta_data: {
+            created_from: 'lead',
+            lead_id: sourceLead?.id ? Number(sourceLead.id) || sourceLead.id : undefined,
+          },
         };
 
         const res = await api.post('/api/customers', payload);
@@ -1697,7 +1705,11 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
         const res = await api.get(`/api/visits`, { params: { lead_id: lead.id, limit: 500 } });
         const visits = Array.isArray(res.data) ? res.data : (res.data?.data || []);
         const sorted = visits
-          .filter(v => v.type === 'lead')
+          // Web saves type=lead; mobile often saves type=site_visit with the same lead_id.
+          .filter((v) => {
+            const type = String(v?.type || '').trim().toLowerCase()
+            return type === 'lead' || type === 'site_visit' || (!type && v?.leadId)
+          })
           .sort((a, b) => new Date(b.checkInDate || b.check_in_at) - new Date(a.checkInDate || a.check_in_at));
         setCheckInHistory(sorted);
       } catch (e) {

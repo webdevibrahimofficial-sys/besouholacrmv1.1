@@ -95,4 +95,38 @@ class QuotationAttachmentTest extends TestCase
         $this->assertNotEmpty(data_get($quotation->meta_data, 'attachment'));
         Storage::disk('public')->assertExists(data_get($quotation->meta_data, 'attachment'));
     }
+
+    public function test_attachments_store_endpoint_persists_files_like_orders(): void
+    {
+        $user = $this->actingTenantUser();
+        Storage::fake('public');
+
+        $quotation = Quotation::create([
+            'tenant_id' => $user->tenant_id,
+            'customer_name' => 'Attach Customer',
+            'status' => 'Draft',
+            'items' => [['name' => 'Router', 'quantity' => 1, 'price' => 100]],
+            'subtotal' => 100,
+            'total' => 100,
+            'meta_data' => ['quotation_code' => 'Q-0200'],
+        ]);
+
+        $file = UploadedFile::fake()->create('quote-attach.pdf', 18, 'application/pdf');
+        $request = Request::create("/api/quotations/{$quotation->id}/attachments", 'POST', [], [], [
+            'files' => [$file],
+        ]);
+        $request->setUserResolver(fn () => $user);
+
+        $response = app(QuotationController::class)->attachmentsStore($request, $quotation);
+        $this->assertSame(200, $response->getStatusCode());
+        $payload = $response->getData(true);
+        $this->assertSame('quote-attach.pdf', data_get($payload, '0.name'));
+
+        $quotation->refresh();
+        $this->assertSame('Q-0200', data_get($quotation->meta_data, 'quotation_code'));
+        $this->assertSame('quote-attach.pdf', data_get($quotation->meta_data, 'attachment_name'));
+        $this->assertNotEmpty(data_get($quotation->meta_data, 'attachment'));
+        $this->assertCount(1, data_get($quotation->meta_data, 'attachments', []));
+        Storage::disk('public')->assertExists(data_get($quotation->meta_data, 'attachment'));
+    }
 }

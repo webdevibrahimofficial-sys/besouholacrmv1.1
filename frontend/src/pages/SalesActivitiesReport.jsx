@@ -9,7 +9,15 @@ import { Phone, Activity, DollarSign, Target, Filter, ChevronDown, User, Users, 
 import { FaFileExport, FaChevronDown, FaFileExcel, FaFilePdf } from 'react-icons/fa'
 import * as XLSX from 'xlsx'
 import { api, logExportEvent } from '../utils/api'
-import { usesCompanyTarget } from '../utils/targetRevenueReport'
+import {
+  usesCompanyTarget,
+  calculateAchievementPercent,
+  formatAchievementPercent,
+  resolveCompanyPeriodTarget,
+  resolveReportKpiTarget,
+  resolveSalespersonRowTarget,
+  shouldIncludeInSalespersonRows,
+} from '../utils/targetRevenueReport'
 import BackButton from '../components/BackButton'
 import SearchableSelect from '../components/SearchableSelect'
 import DateRangePicker from '../shared/components/DateRangePicker'
@@ -109,6 +117,7 @@ export default function SalesActivitiesReport() {
   const [sourceFilter, setSourceFilter] = useState([])
   const [projectFilter, setProjectFilter] = useState([])
   const [actionTypeFilter, setActionTypeFilter] = useState([])
+  const [yearFilter, setYearFilter] = useState(String(new Date().getFullYear()))
   
   const [assignDateFrom, setAssignDateFrom] = useState('')
   const [assignDateTo, setAssignDateTo] = useState('')
@@ -131,6 +140,12 @@ export default function SalesActivitiesReport() {
   const [company, setCompany] = useState(null)
   const [loadingFilters, setLoadingFilters] = useState(false)
   const [actions, setActions] = useState([])
+  const [targetHistory, setTargetHistory] = useState([])
+  const [companyTargetHistory, setCompanyTargetHistory] = useState([])
+  const [tenantCreatedYear, setTenantCreatedYear] = useState(new Date().getFullYear())
+  const [reportCurrentYear, setReportCurrentYear] = useState(new Date().getFullYear())
+  const reportNow = useMemo(() => new Date(), [])
+  const currentYear = Number(reportCurrentYear || reportNow.getFullYear())
 
   const storedStages = useMemo(() => {
     try {
@@ -455,6 +470,50 @@ export default function SalesActivitiesReport() {
     return ['closing_deals', 'closing_deal', 'close_deal', 'done_deal', 'done_deals'].includes(type)
   }
 
+  const isCancelAction = (action) => {
+    const details = parseActionDetails(action?.details)
+    const type = normalizeActionTypeKey(
+      action?.next_action_type,
+      details?.nextAction,
+      details?.next_action_type,
+      details?.actionType,
+      details?.action_type,
+      action?.action_type,
+      action?.type
+    )
+    const outcome = String(
+      action?.outcome ||
+      details?.outcome ||
+      details?.answerStatus ||
+      details?.answer_status ||
+      ''
+    ).trim().toLowerCase()
+
+    return (
+      type === 'cancel' ||
+      type.includes('cancel') ||
+      outcome === 'cancelled' ||
+      outcome === 'canceled'
+    )
+  }
+
+  // Answer / No Answer apply to every stage except cancellation.
+  const normalizeActionOutcome = (action) => {
+    if (isCancelAction(action)) return ''
+    const details = parseActionDetails(action?.details)
+    const raw = String(
+      action?.outcome ||
+      details?.outcome ||
+      details?.answerStatus ||
+      details?.answer_status ||
+      ''
+    ).trim().toLowerCase()
+    if (!raw) return ''
+    if (raw === 'answer') return 'answer'
+    if (['no_answer', 'no answer', 'no-answer'].includes(raw)) return 'no_answer'
+    return ''
+  }
+
   const matchesDateFilters = (action) => {
     const lead = action?.lead || {}
 
@@ -550,6 +609,42 @@ export default function SalesActivitiesReport() {
     }
 
     fetchFilters()
+  }, [])
+
+  useEffect(() => {
+    const fetchTargets = async () => {
+      try {
+        const res = await api.get('/api/user-targets?year=all')
+        const rows = Array.isArray(res.data?.data) ? res.data.data : []
+        setTargetHistory(rows)
+        if (res.data?.tenant_created_year) {
+          setTenantCreatedYear(Number(res.data.tenant_created_year))
+        }
+        if (res.data?.current_year) {
+          const nextYear = Number(res.data.current_year)
+          setReportCurrentYear(nextYear)
+          setYearFilter((prev) => prev || String(nextYear))
+        }
+      } catch (e) {
+        console.error('Failed to fetch user targets for sales activities report', e)
+        setTargetHistory([])
+      }
+    }
+    fetchTargets()
+  }, [])
+
+  useEffect(() => {
+    const fetchCompanyTargets = async () => {
+      try {
+        const res = await api.get('/api/company-targets?year=all')
+        const rows = Array.isArray(res.data?.data) ? res.data.data : []
+        setCompanyTargetHistory(rows)
+      } catch (e) {
+        console.error('Failed to fetch company targets for sales activities report', e)
+        setCompanyTargetHistory([])
+      }
+    }
+    fetchCompanyTargets()
   }, [])
 
   useEffect(() => {
@@ -828,13 +923,6 @@ export default function SalesActivitiesReport() {
     const leadsBySales = new Map()
     const revenueBySalesCurrent = new Map()
     const delayedLeadsBySales = new Map()
-    const normalizeCallOutcome = (action) => {
-      const raw = String(action?.details?.outcome || action?.outcome || '').trim().toLowerCase()
-      if (!raw) return ''
-      if (raw === 'answer') return 'answer'
-      if (['no_answer', 'no answer', 'no-answer'].includes(raw)) return 'no_answer'
-      return raw
-    }
 
     // 1. Initialize rows for all eligible users (to show even those with 0 actions but potential revenue)
     let eligibleUsers = usersList
@@ -876,6 +964,7 @@ export default function SalesActivitiesReport() {
           calls: 0,
           answered: 0,
           noAnswer: 0,
+          cancelled: 0,
           revenue: 0,
           target: 0,
           actionByStage: '',
@@ -891,7 +980,7 @@ export default function SalesActivitiesReport() {
     // 2. Process Actions (Attribute to Actor) and Leads (Attribute to Owner)
     filteredActions.forEach(action => {
       const lead = action.lead || {}
-      const details = action.details || {}
+      const details = parseActionDetails(action.details)
       
       // Attribute action to the User who performed it (Actor)
       const actorName = (action.user && action.user.name) || ''
@@ -899,11 +988,16 @@ export default function SalesActivitiesReport() {
         const row = rowsMap.get(actorName)
         row.actions += 1
 
-        const channel = (details.channel || action.channel || '').toLowerCase()
-        const actionType = (action.action_type || action.type || '').toLowerCase()
+        const channel = String(details.channel || action.channel || '').toLowerCase()
+        const actionType = String(action.action_type || action.type || '').toLowerCase()
         if (channel.includes('call') || actionType.includes('call')) {
           row.calls += 1
-          const outcome = normalizeCallOutcome(action)
+        }
+
+        if (isCancelAction(action)) {
+          row.cancelled += 1
+        } else {
+          const outcome = normalizeActionOutcome(action)
           if (outcome === 'answer') {
             row.answered += 1
           } else if (outcome === 'no_answer') {
@@ -1089,9 +1183,51 @@ export default function SalesActivitiesReport() {
     { label: isRTL ? 'غوغل ميت' : 'Google Meet', value: channelCounts.meet, color: '#10b981' },
   ]), [channelCounts, isRTL])
 
+  const yearOptions = useMemo(() => {
+    const start = Math.min(Number(tenantCreatedYear) || currentYear, currentYear)
+    const end = currentYear
+    const years = []
+    for (let year = end; year >= start; year -= 1) {
+      years.push({ value: String(year), label: String(year) })
+    }
+    return years
+  }, [tenantCreatedYear, currentYear])
+
+  useEffect(() => {
+    if (!yearOptions.length) return
+    if (!yearOptions.some((option) => option.value === String(yearFilter))) {
+      setYearFilter(yearOptions[0].value)
+    }
+  }, [yearOptions, yearFilter])
+
+  const targetHistoryByUser = useMemo(() => {
+    const map = new Map()
+    ;(targetHistory || []).forEach((row) => {
+      const uid = String(row.user_id || row.user?.id || '')
+      if (!uid) return
+      if (!map.has(uid)) map.set(uid, [])
+      map.get(uid).push(row)
+    })
+    return map
+  }, [targetHistory])
+
+  const companyYearlyTarget = useMemo(() => (
+    resolveCompanyPeriodTarget({
+      rows: companyTargetHistory,
+      yearFilter: String(yearFilter || currentYear),
+      type: 'yearly',
+      currentYear,
+      tenantCreatedYear,
+      now: reportNow,
+    })
+  ), [companyTargetHistory, yearFilter, currentYear, tenantCreatedYear, reportNow])
+
   const kpiData = useMemo(() => {
     let totalCalls = 0
     let totalAction = 0
+    let yearlyRevenue = 0
+    const yearKey = String(yearFilter || currentYear)
+    const yearlyRevenueUserIds = new Set()
 
     filteredActions.forEach(action => {
       totalAction += 1
@@ -1101,21 +1237,82 @@ export default function SalesActivitiesReport() {
       if (channel.includes('call') || actionType.includes('call')) {
         totalCalls += 1
       }
+
+      const revenueAmount = getRevenueAmount(action)
+      if (revenueAmount <= 0) return
+
+      const details = parseActionDetails(action.details)
+      const closedDate = parseDateDetails(
+        action.created_at ||
+        details.date ||
+        details.closed_at ||
+        ''
+      )
+      if (String(closedDate).slice(0, 4) !== yearKey) return
+
+      yearlyRevenue += revenueAmount
+      const ownerId = getLeadOwnerId(action)
+      if (ownerId) yearlyRevenueUserIds.add(String(ownerId))
     })
 
-    const totalRevenue = filteredData.reduce((sum, row) => sum + Number(row.revenue || 0), 0)
-    const totalTarget = filteredData.reduce((sum, row) => sum + Number(row.target || 0), 0)
-    const achievementFromTarget = totalTarget > 0
-      ? Math.round((totalRevenue / totalTarget) * 100)
-      : 0
+    const selectedYear = String(yearFilter || currentYear)
+    const personalTarget = (person) => resolveSalespersonRowTarget({
+      user: person,
+      rows: targetHistoryByUser.get(String(person?.id || '')) || [],
+      yearFilter: selectedYear,
+      type: 'yearly',
+      currentYear,
+      tenantCreatedYear,
+      now: reportNow,
+    })
+
+    let relevantUsers = []
+    if (Array.isArray(salesPersonFilter) && salesPersonFilter.length > 0) {
+      relevantUsers = usersList.filter((person) => salesPersonFilter.includes(String(person.id)))
+    } else if (Array.isArray(managerFilter) && managerFilter.length > 0) {
+      const selectedManagers = usersList.filter((person) => managerFilter.includes(String(person.id)))
+      const map = new Map()
+      selectedManagers.forEach((manager) => {
+        map.set(String(manager.id), manager)
+        getDescendants(manager.id, usersList).forEach((sub) => {
+          map.set(String(sub.id), sub)
+        })
+      })
+      relevantUsers = Array.from(map.values())
+    } else {
+      relevantUsers = usersList.filter((person) => shouldIncludeInSalespersonRows(person, {
+        personalTarget: personalTarget(person),
+        hasRevenue: yearlyRevenueUserIds.has(String(person.id)),
+      }))
+    }
+
+    const yearlyTarget = resolveReportKpiTarget({
+      managerFilter: Array.isArray(managerFilter) && managerFilter.length > 0 ? 'scoped' : 'all',
+      salesPersonFilter: Array.isArray(salesPersonFilter) && salesPersonFilter.length > 0 ? 'scoped' : 'all',
+      visibleTargets: relevantUsers.map(personalTarget),
+      companyTarget: companyYearlyTarget,
+    })
 
     return {
       totalCalls,
       totalAction,
-      totalRevenue,
-      achievementFromTarget,
+      totalRevenue: yearlyRevenue,
+      achievementFromTarget: formatAchievementPercent(
+        calculateAchievementPercent(yearlyRevenue, yearlyTarget)
+      ),
     }
-  }, [filteredActions, filteredData])
+  }, [
+    filteredActions,
+    usersList,
+    salesPersonFilter,
+    managerFilter,
+    yearFilter,
+    currentYear,
+    tenantCreatedYear,
+    reportNow,
+    targetHistoryByUser,
+    companyYearlyTarget,
+  ])
 
   const [expandedRows, setExpandedRows] = useState({});
   const [hoveredActionRow, setHoveredActionRow] = useState(null);
@@ -1238,6 +1435,7 @@ export default function SalesActivitiesReport() {
     setSourceFilter([])
     setProjectFilter([])
     setActionTypeFilter([])
+    setYearFilter(String(currentYear))
     setAssignDateFrom('')
     setAssignDateTo('')
     setCreationDateFrom('')
@@ -1353,6 +1551,26 @@ export default function SalesActivitiesReport() {
                 {isRTL ? 'المصدر' : 'Source'}
               </label>
               <SearchableSelect options={sourceOptions} value={sourceFilter} onChange={setSourceFilter} placeholder={isRTL ? 'اختر' : 'Select'} multiple isRTL={isRTL} icon={<Tag size={16} />} />
+            </div>
+            <div className="space-y-1">
+              <label className={`flex items-center gap-1 text-xs font-medium ${isLight ? 'text-black' : 'text-white'}`}>
+                <Calendar size={12} className="text-blue-500 dark:text-blue-400" />
+                {isRTL ? 'السنة' : 'Year'}
+              </label>
+              <SearchableSelect
+                options={yearOptions}
+                value={yearFilter}
+                onChange={setYearFilter}
+                placeholder={isRTL ? 'السنة' : 'Year'}
+                isRTL={isRTL}
+                showAllOption={false}
+                icon={<Calendar size={16} />}
+              />
+              <p className={`text-[11px] leading-snug ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                {isRTL
+                  ? 'خاص بكارتي Total Revenue (yearly) و Total Achievement From Target (yearly) فقط'
+                  : 'Applies only to Total Revenue (yearly) and Total Achievement From Target (yearly)'}
+              </p>
             </div>
           </div>
           {/* Collapsible Section (Dates) */}
@@ -1482,15 +1700,15 @@ export default function SalesActivitiesReport() {
             bgColor: 'bg-purple-50 dark:bg-purple-900/20',
           },
           {
-            title: isRTL ? 'إجمالي الإيرادات' : 'Total Revenue',
+            title: isRTL ? 'إجمالي الإيرادات (yearly)' : 'Total Revenue (yearly)',
             value: kpiData.totalRevenue.toLocaleString(),
             icon: DollarSign,
             color: 'text-green-600 dark:text-green-400',
             bgColor: 'bg-green-50 dark:bg-green-900/20',
           },
           {
-            title: isRTL ? 'تحقيق الهدف' : 'Total Achievement From Target',
-            value: `${kpiData.achievementFromTarget}%`,
+            title: isRTL ? 'تحقيق الهدف (yearly)' : 'Total Achievement From Target (yearly)',
+            value: kpiData.achievementFromTarget,
             icon: Target,
             color: 'text-orange-600 dark:text-orange-400',
             bgColor: 'bg-orange-50 dark:bg-orange-900/20',

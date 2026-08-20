@@ -1,9 +1,91 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Fragment } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useTheme } from '../shared/context/ThemeProvider'
 import { api } from '../utils/api'
 import { FaShoppingCart, FaTimes, FaHashtag, FaUser, FaFileInvoiceDollar, FaCalendarAlt, FaPlus, FaTrash, FaStickyNote, FaPaperclip, FaSave } from 'react-icons/fa'
 import SearchableSelect from './SearchableSelect'
+import { getQuotationLineAddonsTotal, getQuotationLineTotal } from './QuotationsFormModal'
+import {
+  CATEGORY_TYPE_PRODUCTS,
+  CATEGORY_TYPE_SERVICES,
+  normalizeCategoryType,
+} from '../features/inventory/categoryType'
+import {
+  applyCatalogSelectionToLine,
+  extractItemsCollection,
+  findCatalogProduct,
+  emptySalesLineAddons,
+  findCatalogMatchForLine,
+  resolveAvailableAddonsForLine,
+  formatServiceBillingLabel,
+  getLineIdentityMeta,
+  getSalesLineLabels,
+  isServiceSalesLine,
+  mapCatalogItem,
+  resetLineForCategoryChange,
+  resetLineForTypeChange,
+  resolveCategoryName,
+  resolveLineItemType,
+} from '../features/inventory/salesLineCatalog'
+import SalesLineAddonsPicker from '../features/inventory/SalesLineAddonsPicker'
+
+const DEFAULT_TAX_RATE = 14
+
+const normalizeDiscountType = (value) => (
+  String(value || '').toLowerCase() === 'percent' ? 'percent' : 'value'
+)
+
+const coerceTaxEnabled = (value, fallback = false) => {
+  if (value === undefined || value === null || value === '') return fallback
+  if (typeof value === 'boolean') return value
+  if (typeof value === 'number') return value !== 0 && Number.isFinite(value)
+  const s = String(value).trim().toLowerCase()
+  if (['1', 'true', 'yes', 'on'].includes(s)) return true
+  if (['0', 'false', 'no', 'off'].includes(s)) return false
+  return fallback
+}
+
+const resolveActiveTaxRate = (taxRate) => {
+  if (taxRate === undefined || taxRate === null || taxRate === '') return DEFAULT_TAX_RATE
+  const n = Number(taxRate)
+  return Number.isFinite(n) ? Math.max(0, n) : DEFAULT_TAX_RATE
+}
+
+const resolveOrderTaxRate = (data, taxableBase = 0) => {
+  const stored = Number(data?.taxRate ?? data?.tax_rate ?? data?.meta_data?.tax_rate)
+  if (Number.isFinite(stored) && stored > 0) return stored
+  const tax = Number(data?.tax || 0)
+  const base = Number(taxableBase) || Number(data?.subtotal || data?.amount || 0)
+  if (base > 0 && tax > 0) return Math.round((tax / base) * 10000) / 100
+  return DEFAULT_TAX_RATE
+}
+
+const resolveDocumentDiscount = (data) => {
+  const meta = data?.meta_data || data?.metaData || {}
+  const discountType = normalizeDiscountType(
+    data?.discountType ?? data?.discount_type ?? meta?.discount_type
+  )
+  const storedAmount = Number(data?.discountAmount ?? data?.discount ?? meta?.discount_amount ?? 0)
+  const storedRate = Number(
+    data?.discountRate
+    ?? data?.discount_rate
+    ?? meta?.discount_rate
+    ?? 0
+  )
+  if (discountType === 'percent') {
+    if (Number.isFinite(storedRate) && storedRate > 0) {
+      return { discountType, discount: storedRate > 1 ? storedRate : storedRate * 100 }
+    }
+    return { discountType, discount: 0 }
+  }
+  if (Number.isFinite(storedAmount) && storedAmount > 0) {
+    return { discountType: 'value', discount: storedAmount }
+  }
+  if (Number.isFinite(storedRate) && storedRate > 0) {
+    return { discountType: 'percent', discount: storedRate > 1 ? storedRate : storedRate * 100 }
+  }
+  return { discountType: 'value', discount: 0 }
+}
 
 const SalesOrdersFormModal = ({ isOpen, onClose, onSave, initialData = null, isRTL, readOnly = false }) => {
   const { t } = useTranslation()
@@ -21,9 +103,13 @@ const SalesOrdersFormModal = ({ isOpen, onClose, onSave, initialData = null, isR
     deliveryDate: '',
     items: [], // Array of line items
     tax: 0,
+    taxRate: DEFAULT_TAX_RATE,
+    isTaxEnabled: true,
     notes: '',
     attachment: null,
     salesPerson: '',
+    discountType: 'value',
+    discount: 0,
     discountRate: 0
   })
 
@@ -63,27 +149,19 @@ const SalesOrdersFormModal = ({ isOpen, onClose, onSave, initialData = null, isR
         // Fetch categories from API
         const categoriesData = categoriesRes.data?.data || categoriesRes.data || []
         if (Array.isArray(categoriesData)) {
-            setCategories(categoriesData.map(c => ({
-                value: c.name,
-                label: c.name
-            })))
+          setCategories(
+            categoriesData.map((c) => ({
+              value: c.name,
+              label: c.name,
+              categoryType: normalizeCategoryType(c.applies_to || c.category_type || c.type) || CATEGORY_TYPE_PRODUCTS,
+            })).filter((c) => c.value)
+          )
         } else {
-             setCategories([])
+          setCategories([])
         }
 
-        const itemsData = itemsRes.data?.data || itemsRes.data || []
-        if (Array.isArray(itemsData)) {
-          const mappedItems = itemsData.map(item => ({
-            id: item.id,
-            name: item.name || item.title || item.code || '',
-            price: Number(item.price || item.unit_price || 0),
-            type: item.type || 'Product',
-            category: item.category?.name || item.category_name || item.category || '',
-          })).filter(i => i.name)
-          setProducts(mappedItems)
-        } else {
-          setProducts([])
-        }
+        const itemsData = extractItemsCollection(itemsRes.data)
+        setProducts(itemsData.map(mapCatalogItem).filter((item) => item.name))
 
         const qData = quotationsRes.data.data || quotationsRes.data || []
         if (Array.isArray(qData)) {
@@ -125,6 +203,34 @@ const SalesOrdersFormModal = ({ isOpen, onClose, onSave, initialData = null, isR
 
   useEffect(() => {
     if (initialData) {
+      const docDiscount = resolveDocumentDiscount(initialData)
+      const meta = initialData.meta_data || initialData.metaData || {}
+      const normalizedItems = (initialData.items || []).map((item, idx) => ({
+        ...item,
+        id: item?.id ?? item?.item_id ?? `line-${idx}`,
+        type: resolveLineItemType(item?.type),
+        category: resolveCategoryName(item) || String(item?.category || item?.product_category || '').trim(),
+        discountType: normalizeDiscountType(item?.discountType ?? item?.discount_type),
+        discount: Number(item?.discount ?? 0) || 0,
+        addon_ids: Array.isArray(item?.addon_ids)
+          ? item.addon_ids
+          : (Array.isArray(item?.addons)
+            ? item.addons.map((addon) => addon?.id ?? addon?.addon_id).filter((id) => id != null && id !== '')
+            : []),
+        addons: Array.isArray(item?.addons) ? item.addons : [],
+        addons_total: getQuotationLineAddonsTotal(item),
+      }))
+      const itemsSubtotal = normalizedItems.reduce((sum, item) => sum + getQuotationLineTotal(item), 0)
+      const provisionalDiscount = docDiscount.discountType === 'percent'
+        ? itemsSubtotal * (Math.max(0, Math.min(100, Number(docDiscount.discount) || 0)) / 100)
+        : Math.min(itemsSubtotal, Math.max(0, Number(docDiscount.discount) || 0))
+      const taxableBase = Math.max(0, itemsSubtotal - provisionalDiscount)
+      const taxRate = resolveOrderTaxRate(initialData, taxableBase)
+      const isTaxEnabled = coerceTaxEnabled(
+        initialData.isTaxEnabled ?? meta.is_tax_enabled,
+        Number(initialData.tax || 0) > 0
+      )
+
       setFormData({
         ...initialData,
         id: initialData.id || '',
@@ -135,13 +241,16 @@ const SalesOrdersFormModal = ({ isOpen, onClose, onSave, initialData = null, isR
         status: Number.isFinite(Number(initialData.id)) ? (initialData.status || 'Draft') : 'Draft',
         date: initialData.createdAt ? new Date(initialData.createdAt).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
         deliveryDate: initialData.deliveryDate ? new Date(initialData.deliveryDate).toISOString().split('T')[0] : '',
-        items: initialData.items || [],
+        items: normalizedItems,
         tax: Number(initialData.tax || 0),
-        isTaxEnabled: Number(initialData.tax || 0) > 0,
+        taxRate,
+        isTaxEnabled,
         notes: initialData.notes || '',
         attachment: initialData.attachment || null,
         salesPerson: initialData.salesPerson || '',
-        discountRate: initialData.discountRate || 0
+        discountType: docDiscount.discountType,
+        discount: docDiscount.discount,
+        discountRate: itemsSubtotal > 0 ? provisionalDiscount / itemsSubtotal : (initialData.discountRate || 0)
       })
     } else {
       setFormData({
@@ -155,7 +264,10 @@ const SalesOrdersFormModal = ({ isOpen, onClose, onSave, initialData = null, isR
         deliveryDate: '',
         items: [],
         tax: 0,
+        taxRate: DEFAULT_TAX_RATE,
         isTaxEnabled: true,
+        discountType: 'value',
+        discount: 0,
         discountRate: 0,
         notes: '',
         attachment: null,
@@ -175,30 +287,39 @@ const SalesOrdersFormModal = ({ isOpen, onClose, onSave, initialData = null, isR
     }
   }, [salesPersons, formData.salesPerson])
 
-  // Calculations
+  // Calculations — match Quotations line helpers + document discount before tax
   const calculateSubtotal = () => {
-    return formData.items.reduce((sum, item) => {
-      const qty = parseFloat(item.quantity) || 0
-      const price = parseFloat(item.price) || 0
-      const discount = parseFloat(item.discount) || 0
-      return sum + (qty * price) - discount
-    }, 0)
+    return formData.items.reduce((sum, item) => sum + getQuotationLineTotal(item), 0)
   }
 
   const subtotal = calculateSubtotal()
-  const globalDiscountAmount = subtotal * (formData.discountRate || 0)
+  const rawDiscount = Math.max(0, Number(formData.discount) || 0)
+  const globalDiscountAmount = formData.discountType === 'percent'
+    ? subtotal * (Math.min(100, rawDiscount) / 100)
+    : Math.min(subtotal, rawDiscount)
+  const discountRate = subtotal > 0 ? globalDiscountAmount / subtotal : 0
+  const taxableBase = Math.max(0, subtotal - globalDiscountAmount)
   const taxAmount = parseFloat(formData.tax) || 0
-  const total = subtotal - globalDiscountAmount + taxAmount
+  const total = taxableBase + taxAmount
 
-  // Auto-calculate tax effect
+  // Auto-calculate tax from taxable base × rate
   useEffect(() => {
     if (formData.isTaxEnabled) {
-      const calculatedTax = (subtotal - globalDiscountAmount) * 0.14
-      if (Math.abs(formData.tax - calculatedTax) > 0.01) {
-        setFormData(prev => ({ ...prev, tax: calculatedTax }))
-      }
+      const rate = resolveActiveTaxRate(formData.taxRate)
+      const calculatedTax = taxableBase * (rate / 100)
+      setFormData(prev => {
+        const needsRateFix = prev.taxRate === undefined || prev.taxRate === null || prev.taxRate === ''
+        if (Math.abs(Number(prev.tax) - calculatedTax) <= 0.01 && !needsRateFix) return prev
+        return {
+          ...prev,
+          tax: calculatedTax,
+          ...(needsRateFix ? { taxRate: resolveActiveTaxRate(prev.taxRate) } : {}),
+        }
+      })
+    } else if (Number(formData.tax) !== 0) {
+      setFormData(prev => ({ ...prev, tax: 0 }))
     }
-  }, [subtotal, globalDiscountAmount, formData.isTaxEnabled])
+  }, [taxableBase, formData.isTaxEnabled, formData.taxRate])
 
   if (!isOpen) return null
 
@@ -213,6 +334,10 @@ const SalesOrdersFormModal = ({ isOpen, onClose, onSave, initialData = null, isR
       if (!item.name) newErrors[`item_name_${index}`] = true
       if (!item.quantity || item.quantity <= 0) newErrors[`item_qty_${index}`] = true
       if (!item.price || item.price < 0) newErrors[`item_price_${index}`] = true
+      const discount = Number(item.discount) || 0
+      const discountType = item.discountType || 'value'
+      if (discount < 0) newErrors[`item_discount_${index}`] = true
+      if (discountType === 'percent' && discount > 100) newErrors[`item_discount_${index}`] = true
     })
 
     if (Object.keys(newErrors).length > 0) {
@@ -235,6 +360,10 @@ const SalesOrdersFormModal = ({ isOpen, onClose, onSave, initialData = null, isR
         ...formData, 
         subtotal, 
         discountAmount: globalDiscountAmount,
+        discountRate,
+        discountType: formData.discountType || 'value',
+        taxRate: formData.taxRate,
+        isTaxEnabled: formData.isTaxEnabled,
         total,
         createdAt: new Date().toISOString()
       })
@@ -247,7 +376,17 @@ const SalesOrdersFormModal = ({ isOpen, onClose, onSave, initialData = null, isR
       ...prev,
       items: [
         ...prev.items,
-        { id: Date.now(), type: 'Product', category: '', name: '', quantity: 1, price: 0, discount: 0 }
+        {
+          id: Date.now(),
+          type: 'Product',
+          category: '',
+          name: '',
+          quantity: 1,
+          price: 0,
+          discount: 0,
+          discountType: 'value',
+          ...emptySalesLineAddons(),
+        }
       ]
     }))
   }
@@ -262,17 +401,115 @@ const SalesOrdersFormModal = ({ isOpen, onClose, onSave, initialData = null, isR
   const updateItem = (index, field, value) => {
     setFormData(prev => ({
       ...prev,
-      items: prev.items.map((item, i) => i === index ? { ...item, [field]: value } : item)
+      items: prev.items.map((item, i) => {
+        if (i !== index) return item
+        if (field === 'discountType') {
+          const nextType = normalizeDiscountType(value)
+          const prevType = normalizeDiscountType(item.discountType)
+          if (nextType === prevType) return { ...item, discountType: nextType }
+          const qty = Number(item.quantity) || 0
+          const price = Number(item.price) || 0
+          const lineGross = (qty * price) + getQuotationLineAddonsTotal(item)
+          const raw = Math.max(0, Number(item.discount) || 0)
+          let nextDiscount = 0
+          if (lineGross > 0) {
+            if (nextType === 'percent') {
+              const amount = prevType === 'percent'
+                ? Math.min(lineGross, (lineGross * Math.min(100, raw)) / 100)
+                : Math.min(lineGross, raw)
+              nextDiscount = Math.round((amount / lineGross) * 10000) / 100
+            } else {
+              nextDiscount = prevType === 'percent'
+                ? Math.min(lineGross, (lineGross * Math.min(100, raw)) / 100)
+                : Math.min(lineGross, raw)
+            }
+          }
+          return { ...item, discountType: nextType, discount: nextDiscount }
+        }
+        return { ...item, [field]: value }
+      })
     }))
   }
 
-  // Options
+  const handleLineAddonsChange = (index, nextLine) => {
+    setFormData((prev) => ({
+      ...prev,
+      items: prev.items.map((item, i) => (i === index ? nextLine : item)),
+    }))
+  }
+
+  // Category / item cascading helpers (Type → Category → Item Name)
   const itemTypeOptions = [
     { value: 'Product', label: isRTL ? 'منتج' : 'Product' },
     { value: 'Service', label: isRTL ? 'خدمة' : 'Service' }
   ]
 
-  const categoryOptions = categories;
+  const getCategoryOptionsForLine = (line) => {
+    const wanted = resolveLineItemType(line?.type) === 'Service'
+      ? CATEGORY_TYPE_SERVICES
+      : CATEGORY_TYPE_PRODUCTS
+    const filtered = (categories || []).filter((c) => !c.categoryType || c.categoryType === wanted)
+    const options = filtered.length ? filtered : (categories || [])
+    const current = String(line?.category || '').trim()
+    if (current && !options.some((opt) => opt.value === current)) {
+      return [...options, { value: current, label: current, categoryType: wanted }]
+    }
+    return options
+  }
+
+  const getProductOptionsForLine = (line) => {
+    const lineType = resolveLineItemType(line?.type)
+    const lineCategory = String(line?.category || '').trim()
+    return (products || []).filter((product) => {
+      if (product.type && product.type !== lineType) return false
+      if (lineCategory && product.category !== lineCategory) return false
+      return Boolean(product.name)
+    })
+  }
+
+  const handleLineTypeChange = (index, newType) => {
+    setFormData((prev) => ({
+      ...prev,
+      items: prev.items.map((it, i) => (
+        i === index ? resetLineForTypeChange(it, newType) : it
+      )),
+    }))
+  }
+
+  const handleLineCategoryChange = (index, newCategory) => {
+    setFormData((prev) => ({
+      ...prev,
+      items: prev.items.map((it, i) => (
+        i === index ? resetLineForCategoryChange(it, newCategory) : it
+      )),
+    }))
+  }
+
+  const handleLineItemSelect = (index, selectedIdOrName) => {
+    setFormData((prev) => {
+      const current = prev.items[index] || {}
+      const product = findCatalogProduct(products, {
+        id: selectedIdOrName,
+        name: selectedIdOrName,
+        type: current.type,
+        category: current.category,
+      }) || findCatalogProduct(getProductOptionsForLine(current), {
+        id: selectedIdOrName,
+        name: selectedIdOrName,
+        type: current.type,
+        category: current.category,
+      })
+      const selectedName = product?.name || String(selectedIdOrName || '')
+      return {
+        ...prev,
+        items: prev.items.map((it, i) => (
+          i === index ? applyCatalogSelectionToLine(it, product, selectedName) : it
+        )),
+      }
+    })
+  }
+
+  const lineLabels = getSalesLineLabels(isRTL)
   
   const inputClass = `w-full px-4 py-2 rounded-lg border focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all ${
     isDark 
@@ -284,10 +521,14 @@ const SalesOrdersFormModal = ({ isOpen, onClose, onSave, initialData = null, isR
   const errorClass = "text-xs text-red-500 mt-1"
 
   return (
-    <div className="fixed inset-0 z-[2050] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
+    <div className="fixed inset-0 z-[2050] flex items-center justify-center p-4 pointer-events-none">
+      <div className="absolute inset-0 z-0 bg-black/50 backdrop-blur-sm pointer-events-auto" onClick={onClose} aria-hidden="true" />
       
-      <div className={`card relative w-full max-w-5xl max-h-[90vh] overflow-y-auto rounded-2xl shadow-2xl flex flex-col ${isDark ? 'bg-gray-900' : 'bg-white'}`}>
+      <div
+        className={`card relative z-10 w-full max-w-5xl max-h-[90vh] overflow-y-auto rounded-2xl shadow-2xl flex flex-col pointer-events-auto ${isDark ? 'bg-gray-900' : 'bg-white'}`}
+        onMouseDown={(e) => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
+      >
         
         {/* Header */}
         <div className={`flex items-center justify-between px-6 py-4 border-b ${isDark ? 'border-gray-800' : 'border-gray-100'}`}>
@@ -316,7 +557,7 @@ const SalesOrdersFormModal = ({ isOpen, onClose, onSave, initialData = null, isR
             <div>
               <label className={labelClass}>{isRTL ? 'رقم الطلب' : 'Order #'}</label>
               <div className="relative">
-                <FaHashtag className={`absolute ${isRTL ? 'right-3' : 'left-3'} top-3 text-theme-text`} />
+                <FaHashtag className={`pointer-events-none absolute ${isRTL ? 'right-3' : 'left-3'} top-3 text-theme-text`} />
                 <input
                   type="text"
                   value={formData.id}
@@ -329,7 +570,7 @@ const SalesOrdersFormModal = ({ isOpen, onClose, onSave, initialData = null, isR
             <div>
               <label className={labelClass}>{isRTL ? 'كود العميل' : 'Customer Code'}</label>
               <div className="relative">
-                <FaUser className={`absolute ${isRTL ? 'right-3' : 'left-3'} top-3 text-theme-text`} />
+                <FaUser className={`pointer-events-none absolute ${isRTL ? 'right-3' : 'left-3'} top-3 text-theme-text`} />
                 <SearchableSelect
                   options={customers.map(c => ({ value: c.code, label: `${c.code} - ${c.name}` }))}
                   value={formData.customerCode}
@@ -363,7 +604,7 @@ const SalesOrdersFormModal = ({ isOpen, onClose, onSave, initialData = null, isR
             <div>
               <label className={labelClass}>{isRTL ? 'اسم العميل' : 'Customer Name'}</label>
               <div className="relative">
-                <FaUser className={`absolute ${isRTL ? 'right-3' : 'left-3'} top-3 text-theme-text`} />
+                <FaUser className={`pointer-events-none absolute ${isRTL ? 'right-3' : 'left-3'} top-3 text-theme-text`} />
                 <input
                   type="text"
                   value={formData.customerName}
@@ -378,7 +619,7 @@ const SalesOrdersFormModal = ({ isOpen, onClose, onSave, initialData = null, isR
             <div>
               <label className={labelClass}>{isRTL ? 'كود عرض السعر' : 'Quotation Code'}</label>
               <div className="relative">
-                <FaFileInvoiceDollar className={`absolute ${isRTL ? 'right-3' : 'left-3'} top-3 text-theme-text`} />
+                <FaFileInvoiceDollar className={`pointer-events-none absolute ${isRTL ? 'right-3' : 'left-3'} top-3 text-theme-text`} />
                 <select
                   value={formData.quotationId}
                   onChange={e => {
@@ -394,15 +635,30 @@ const SalesOrdersFormModal = ({ isOpen, onClose, onSave, initialData = null, isR
                         customerCode: qData.customer_code || qData.customerCode || prev.customerCode,
                         customerName: qData.customerName || qData.customer_name || prev.customerName,
                         salesPerson: qData.salesPerson || qData.sales_person || prev.salesPerson,
-                        items: items.map(item => ({
-                          id: item.id || Date.now(),
-                          type: item.type || 'Product',
-                          category: item.category || item.product_category || '',
-                          name: item.name || item.item_name || item.product_name || '',
-                          quantity: item.quantity || item.qty || 1,
-                          price: item.price || item.unit_price || 0,
-                          discount: item.discount || item.discount_amount || 0
-                        }))
+                        items: items.map(item => {
+                          const addons = Array.isArray(item.addons) ? item.addons : []
+                          const addon_ids = Array.isArray(item.addon_ids)
+                            ? item.addon_ids
+                            : addons.map((addon) => addon?.id ?? addon?.addon_id).filter((id) => id != null && id !== '')
+                          return {
+                            id: item.id || Date.now(),
+                            item_id: item.item_id ?? item.itemId ?? item.product_id,
+                            type: resolveLineItemType(item.type),
+                            category: resolveCategoryName(item) || String(item.category || item.product_category || '').trim(),
+                            name: item.name || item.item_name || item.product_name || '',
+                            quantity: item.quantity || item.qty || 1,
+                            price: item.price || item.unit_price || 0,
+                            discount: item.discount || item.discount_amount || 0,
+                            discountType: normalizeDiscountType(item.discountType ?? item.discount_type),
+                            brand: item.brand || '',
+                            code: item.code || '',
+                            serviceType: item.serviceType || item.service_type || '',
+                            billingCycle: item.billingCycle || item.billing_cycle || '',
+                            addon_ids,
+                            addons,
+                            addons_total: getQuotationLineAddonsTotal({ ...item, addon_ids, addons }),
+                          }
+                        })
                       }));
                     }
                     
@@ -465,7 +721,7 @@ const SalesOrdersFormModal = ({ isOpen, onClose, onSave, initialData = null, isR
               <div>
                 <label className={labelClass}>{isRTL ? 'تاريخ الطلب' : 'Order Date'}</label>
                 <div className="relative">
-                  <FaCalendarAlt className={`absolute ${isRTL ? 'right-3' : 'left-3'} top-3 text-theme-text`} />
+                  <FaCalendarAlt className={`pointer-events-none absolute ${isRTL ? 'right-3' : 'left-3'} top-3 text-theme-text`} />
                   <input
                     type="date"
                     value={formData.date}
@@ -478,7 +734,7 @@ const SalesOrdersFormModal = ({ isOpen, onClose, onSave, initialData = null, isR
               <div>
                 <label className={labelClass}>{isRTL ? 'تاريخ التسليم' : 'Delivery Date'}</label>
                 <div className="relative">
-                  <FaCalendarAlt className={`absolute ${isRTL ? 'right-3' : 'left-3'} top-3 text-theme-text`} />
+                  <FaCalendarAlt className={`pointer-events-none absolute ${isRTL ? 'right-3' : 'left-3'} top-3 text-theme-text`} />
                   <input
                     type="date"
                     value={formData.deliveryDate}
@@ -489,30 +745,6 @@ const SalesOrdersFormModal = ({ isOpen, onClose, onSave, initialData = null, isR
                 {errors.deliveryDate && <p className={errorClass}>{errors.deliveryDate}</p>}
               </div>
             </div>
-            
-            {/* Row 4: Payment Info */}
-            <div>
-              <label className={labelClass}>{isRTL ? 'نسبة الخصم' : 'Discount %'}</label>
-              <div className="flex gap-2">
-                <div className="relative w-24">
-                  <input
-                    type="number"
-                    min="0"
-                    max="100"
-                    step="0.1"
-                    className={`${inputClass} text-center`}
-                    value={formData.discountRate ? parseFloat((formData.discountRate * 100).toFixed(2)) : 0}
-                    onChange={e => {
-                      const val = parseFloat(e.target.value);
-                      const rate = isNaN(val) ? 0 : val / 100;
-                      setFormData({...formData, discountRate: rate});
-                    }}
-                    placeholder="%"
-                  />
-                  <span className="absolute top-2.5 right-2 text-theme-text text-xs">%</span>
-                </div>
-              </div>
-            </div>
           </div>
 
           <div className={`h-px w-full ${isDark ? 'bg-gray-800' : 'bg-gray-100'}`} />
@@ -520,7 +752,7 @@ const SalesOrdersFormModal = ({ isOpen, onClose, onSave, initialData = null, isR
           {/* Section 2: Items (Dynamic List) */}
           <div className="space-y-4">
             <div className="flex justify-between items-center">
-              <h3 className="text-lg font-bold text-theme-text">{isRTL ? 'المنتجات / البنود' : 'Products / Items'}</h3>
+              <h3 className="text-lg font-bold text-theme-text">{lineLabels.sectionTitle}</h3>
               {!readOnly && (
                 <button
                   type="button"
@@ -536,126 +768,161 @@ const SalesOrdersFormModal = ({ isOpen, onClose, onSave, initialData = null, isR
             {errors.items && <p className="text-red-500 text-sm mb-2">{errors.items}</p>}
 
             {/* Desktop Table View */}
-            <div className="hidden md:block overflow-x-auto rounded-lg border border-theme-border dark:border-gray-700">
+            <div className="hidden md:block overflow-x-auto rounded-xl border border-theme-border dark:border-gray-700">
               <table className="w-full text-sm text-left">
-                <thead className="text-xs uppercase text-theme-text bg-gray-50/50 dark:bg-gray-800/50">
+                <thead className={`text-xs uppercase tracking-wide text-theme-text ${isDark ? 'bg-gray-800/60' : 'bg-slate-50'}`}>
                   <tr>
-                    <th className="px-4 py-3 min-w-[120px]">{isRTL ? 'النوع' : 'Type'}</th>
-                    <th className="px-4 py-3 min-w-[120px]">{isRTL ? 'الفئة' : 'Category'}</th>
-                    <th className="px-4 py-3 min-w-[200px]">{isRTL ? 'اسم البند' : 'Item Name'}</th>
-                    <th className="px-4 py-3 w-[100px]">{isRTL ? 'الكمية' : 'Qty'}</th>
-                    <th className="px-4 py-3 w-[120px]">{isRTL ? 'السعر' : 'Price'}</th>
-                    <th className="px-4 py-3 w-[120px]">{isRTL ? 'الخصم' : 'Discount'}</th>
-                    <th className="px-4 py-3 w-[120px]">{isRTL ? 'المجموع' : 'Total'}</th>
-                    <th className="px-4 py-3 w-[50px]"></th>
+                    <th className="px-3 py-3 min-w-[120px]">{lineLabels.type}</th>
+                    <th className="px-3 py-3 min-w-[120px]">{lineLabels.category}</th>
+                    <th className="px-3 py-3 min-w-[200px]">{lineLabels.itemName}</th>
+                    <th className="px-3 py-3 w-[120px]">{lineLabels.qtyOrBilling}</th>
+                    <th className="px-3 py-3 w-[120px]">{lineLabels.amount}</th>
+                    <th className="px-3 py-3 w-[180px]">{lineLabels.discount}</th>
+                    <th className="px-3 py-3 w-[120px]">{lineLabels.total}</th>
+                    <th className="px-3 py-3 w-[52px]"></th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-                  {formData.items.map((item, index) => (
-                    <tr key={item.id || index} className="hover:bg-gray-700/50 transition-colors">
-                      <td className="px-2 py-2">
+                <tbody>
+                  {formData.items.map((item, index) => {
+                    const serviceLine = isServiceSalesLine(item)
+                    const catalogMatch = findCatalogMatchForLine(item, products)
+                    const identityMeta = getLineIdentityMeta({
+                      ...item,
+                      brand: item.brand || catalogMatch?.brand,
+                      code: item.code || catalogMatch?.code,
+                      serviceType: item.serviceType || catalogMatch?.serviceType,
+                    })
+                    const billingValue = item.billingCycle || item.billing_cycle || catalogMatch?.billingCycle
+                    const availableAddons = resolveAvailableAddonsForLine(item, products)
+                    const rowBorder = isDark ? 'border-gray-800' : 'border-gray-100'
+                    return (
+                    <Fragment key={item.id || index}>
+                    <tr className={`border-t ${rowBorder} ${isDark ? 'hover:bg-gray-800/40' : 'hover:bg-slate-50/80'} transition-colors`}>
+                      <td className="px-2 py-3 align-top">
                         <select 
                           className="input input-sm w-full"
-                          value={item.type}
-                          onChange={e => updateItem(index, 'type', e.target.value)}
+                          value={item.type || 'Product'}
+                          onChange={e => handleLineTypeChange(index, e.target.value)}
+                          disabled={readOnly}
                         >
                           {itemTypeOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
                         </select>
                       </td>
-                      <td className="px-2 py-2">
+                      <td className="px-2 py-3 align-top">
                          <select 
                           className="input input-sm w-full"
-                          value={item.category}
-                          onChange={e => {
-                            const newCategory = e.target.value;
-                            setFormData(prev => ({
-                              ...prev,
-                              items: prev.items.map((it, i) => i === index ? { 
-                                ...it, 
-                                category: newCategory,
-                                name: '',
-                                price: 0
-                              } : it)
-                            }));
-                          }}
+                          value={item.category || ''}
+                          onChange={e => handleLineCategoryChange(index, e.target.value)}
+                          disabled={readOnly}
                         >
                           <option value="">{isRTL ? 'اختر...' : 'Select...'}</option>
-                          {categoryOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                          {getCategoryOptionsForLine(item).map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
                         </select>
                       </td>
-                      <td className="px-2 py-2">
+                      <td className="px-2 py-3 align-top">
                         <SearchableSelect
                           placement="bottom"
-                          options={products
-                            .filter(i => !item.category || i.category === item.category)
-                            .map(i => ({ value: i.name, label: i.name }))
-                          }
-                          value={item.name}
-                          onChange={val => {
-                            const selectedName = val;
-                            const product = products.find(p => p.name === selectedName);
-                            setFormData(prev => ({
-                              ...prev,
-                              items: prev.items.map((it, i) => i === index ? { 
-                                ...it, 
-                                name: selectedName,
-                                price: product ? product.price : it.price,
-                                type: product ? product.type : it.type,
-                                category: product ? product.category : it.category
-                              } : it)
-                            }));
-                          }}
-                          placeholder={isRTL ? 'اختر العنصر' : 'Select Item'}
+                          options={getProductOptionsForLine(item).map(i => ({ value: String(i.id), label: i.name }))}
+                          value={(item.item_id != null && item.item_id !== '' ? String(item.item_id) : (findCatalogProduct(products, { name: item.name, type: item.type, category: item.category })?.id != null ? String(findCatalogProduct(products, { name: item.name, type: item.type, category: item.category }).id) : ''))}
+                          onChange={val => handleLineItemSelect(index, val)}
+                          placeholder={serviceLine ? lineLabels.selectService : lineLabels.selectProduct}
                           className={`min-w-[180px] ${errors[`item_name_${index}`] ? 'border-red-500' : ''}`}
                           isRTL={isRTL}
                           showAllOption={false}
+                          disabled={readOnly}
                         />
+                        {identityMeta ? (
+                          <div className="mt-1.5 text-[10px] text-theme-text/60 truncate" title={identityMeta}>
+                            {identityMeta}
+                          </div>
+                        ) : null}
                       </td>
-                      <td className="px-2 py-2">
-                        <input
-                          type="number"
-                          min="1"
-                          className={`input input-sm w-full ${errors[`item_qty_${index}`] ? 'border-red-500' : ''}`}
-                          value={item.quantity}
-                          onChange={e => updateItem(index, 'quantity', Number(e.target.value))}
-                        />
+                      <td className="px-2 py-3 align-top">
+                        {serviceLine ? (
+                          <div className="input input-sm w-full opacity-80 cursor-default flex items-center" title={lineLabels.billing}>
+                            {formatServiceBillingLabel(billingValue, isRTL) || lineLabels.notApplicable}
+                          </div>
+                        ) : (
+                          <input
+                            type="number"
+                            min="1"
+                            className={`input input-sm w-full ${errors[`item_qty_${index}`] ? 'border-red-500' : ''}`}
+                            value={item.quantity}
+                            readOnly={readOnly}
+                            onChange={e => updateItem(index, 'quantity', Number(e.target.value))}
+                          />
+                        )}
                       </td>
-                      <td className="px-2 py-2">
+                      <td className="px-2 py-3 align-top">
                         <input
                           type="number"
                           min="0"
                           step="0.01"
                           className={`input input-sm w-full ${errors[`item_price_${index}`] ? 'border-red-500' : ''}`}
                           value={item.price}
+                          readOnly={readOnly}
                           onChange={e => updateItem(index, 'price', Number(e.target.value))}
                         />
                       </td>
-                      <td className="px-2 py-2">
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          className="input input-sm w-full"
-                          value={item.discount}
-                          onChange={e => updateItem(index, 'discount', Number(e.target.value))}
-                        />
+                      <td className="px-2 py-3 align-top">
+                        <div className="flex items-center gap-1">
+                          <select
+                            className="input input-sm w-[72px] shrink-0"
+                            value={item.discountType || 'value'}
+                            disabled={readOnly}
+                            onChange={e => updateItem(index, 'discountType', e.target.value)}
+                            title={isRTL ? 'نوع الخصم' : 'Discount type'}
+                          >
+                            <option value="value">{isRTL ? 'قيمة' : 'Value'}</option>
+                            <option value="percent">%</option>
+                          </select>
+                          <input
+                            type="number"
+                            min="0"
+                            max={(item.discountType || 'value') === 'percent' ? 100 : undefined}
+                            step="0.01"
+                            className={`input input-sm w-full ${errors[`item_discount_${index}`] ? 'border-red-500' : ''}`}
+                            value={item.discount}
+                            readOnly={readOnly}
+                            onChange={e => updateItem(index, 'discount', Number(e.target.value))}
+                            placeholder={(item.discountType || 'value') === 'percent' ? '%' : isRTL ? 'قيمة' : 'Value'}
+                          />
+                        </div>
                       </td>
-                      <td className="px-4 py-2 font-medium">
-                        {((item.quantity * item.price) - item.discount).toLocaleString()}
+                      <td className="px-3 py-3 align-top">
+                        <span className="inline-block min-w-[4.5rem] font-semibold tabular-nums text-theme-text">
+                          {getQuotationLineTotal(item).toLocaleString()}
+                        </span>
                       </td>
-                      <td className="px-2 py-2 text-center">
+                      <td className="px-2 py-3 align-top text-center">
                         {!readOnly && (
                           <button
                             type="button"
                             onClick={() => removeItem(index)}
-                            className="text-red-500 hover:text-red-700 transition-colors p-2"
+                            className={`inline-flex h-8 w-8 items-center justify-center rounded-md text-red-500 transition-colors ${isDark ? 'hover:bg-red-950/40' : 'hover:bg-red-50'}`}
+                            title={isRTL ? 'حذف' : 'Remove'}
                           >
-                            <FaTrash size={14} />
+                            <FaTrash size={13} />
                           </button>
                         )}
                       </td>
                     </tr>
-                  ))}
+                    <tr className={rowBorder}>
+                      <td colSpan={8} className="px-3 pb-3.5 pt-0">
+                        <SalesLineAddonsPicker
+                          line={item}
+                          catalogAddons={availableAddons}
+                          onChange={(next) => handleLineAddonsChange(index, next)}
+                          isRTL={isRTL}
+                          isDark={isDark}
+                          disabled={readOnly}
+                          compact
+                        />
+                      </td>
+                    </tr>
+                    </Fragment>
+                    )
+                  })}
                   {formData.items.length === 0 && (
                     <tr>
                       <td colSpan="8" className="px-4 py-8 text-center text-theme-text opacity-50 italic">
@@ -669,132 +936,160 @@ const SalesOrdersFormModal = ({ isOpen, onClose, onSave, initialData = null, isR
 
             {/* Mobile Cards View */}
             <div className="md:hidden space-y-4">
-              {formData.items.map((item, index) => (
-                <div key={item.id || index} className={`p-4 rounded-xl border ${isDark ? 'bg-gray-800/50 border-gray-700' : 'bg-gray-50 border-gray-200'} relative shadow-sm`}>
+              {formData.items.map((item, index) => {
+                const serviceLine = isServiceSalesLine(item)
+                const catalogMatch = findCatalogMatchForLine(item, products)
+                const identityMeta = getLineIdentityMeta({
+                  ...item,
+                  brand: item.brand || catalogMatch?.brand,
+                  code: item.code || catalogMatch?.code,
+                  serviceType: item.serviceType || catalogMatch?.serviceType,
+                })
+                const billingValue = item.billingCycle || item.billing_cycle || catalogMatch?.billingCycle
+                const availableAddons = resolveAvailableAddonsForLine(item, products)
+                return (
+                <div key={item.id || index} className={`p-4 rounded-xl border relative ${isDark ? 'bg-gray-900/40 border-gray-700' : 'bg-white border-gray-200 shadow-sm'}`}>
                   <div className="flex justify-between items-center mb-4">
-                    <span className="text-sm font-bold text-blue-600 bg-blue-50 dark:bg-blue-900/30 px-3 py-1 rounded-full">
+                    <span className={`text-sm font-semibold px-2.5 py-1 rounded-md ${isDark ? 'text-blue-300 bg-blue-950/40' : 'text-blue-700 bg-blue-50'}`}>
                       {isRTL ? `بند #${index + 1}` : `Item #${index + 1}`}
                     </span>
                     {!readOnly && (
                       <button
                         type="button"
                         onClick={() => removeItem(index)}
-                        className="text-red-500 hover:text-red-700 p-2 bg-red-50 dark:bg-red-900/30 rounded-full transition-colors"
+                        className={`inline-flex h-8 w-8 items-center justify-center rounded-md text-red-500 transition-colors ${isDark ? 'hover:bg-red-950/40' : 'hover:bg-red-50'}`}
+                        title={isRTL ? 'حذف' : 'Remove'}
                       >
-                        <FaTrash size={14} />
+                        <FaTrash size={13} />
                       </button>
                     )}
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-2 gap-3.5">
                     <div className="col-span-1">
-                      <label className="text-[10px] font-bold uppercase text-gray-500 mb-1 block">{isRTL ? 'النوع' : 'Type'}</label>
+                      <label className="text-[10px] font-bold uppercase text-gray-500 mb-1 block">{lineLabels.type}</label>
                       <select 
                         className="input input-sm w-full"
-                        value={item.type}
-                        onChange={e => updateItem(index, 'type', e.target.value)}
+                        value={item.type || 'Product'}
+                        onChange={e => handleLineTypeChange(index, e.target.value)}
+                        disabled={readOnly}
                       >
                         {itemTypeOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
                       </select>
                     </div>
 
                     <div className="col-span-1">
-                      <label className="text-[10px] font-bold uppercase text-gray-500 mb-1 block">{isRTL ? 'الفئة' : 'Category'}</label>
+                      <label className="text-[10px] font-bold uppercase text-gray-500 mb-1 block">{lineLabels.category}</label>
                       <select 
                         className="input input-sm w-full"
-                        value={item.category}
-                        onChange={e => {
-                          const newCategory = e.target.value;
-                          setFormData(prev => ({
-                            ...prev,
-                            items: prev.items.map((it, i) => i === index ? { 
-                              ...it, 
-                              category: newCategory,
-                              name: '',
-                              price: 0
-                            } : it)
-                          }));
-                        }}
+                        value={item.category || ''}
+                        onChange={e => handleLineCategoryChange(index, e.target.value)}
+                        disabled={readOnly}
                       >
                         <option value="">{isRTL ? 'اختر...' : 'Select...'}</option>
-                        {categoryOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                        {getCategoryOptionsForLine(item).map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
                       </select>
                     </div>
 
                     <div className="col-span-2">
-                      <label className="text-[10px] font-bold uppercase text-gray-500 mb-1 block">{isRTL ? 'اسم البند' : 'Item Name'}</label>
+                      <label className="text-[10px] font-bold uppercase text-gray-500 mb-1 block">
+                        {serviceLine ? lineLabels.serviceName : lineLabels.productName}
+                      </label>
                       <SearchableSelect
                           placement="bottom"
-                          options={products
-                            .filter(i => !item.category || i.category === item.category)
-                            .map(i => ({ value: i.name, label: i.name }))
-                          }
-                          value={item.name}
-                          onChange={val => {
-                            const selectedName = val;
-                            const product = products.find(p => p.name === selectedName);
-                            setFormData(prev => ({
-                              ...prev,
-                              items: prev.items.map((it, i) => i === index ? { 
-                                ...it, 
-                                name: selectedName,
-                                price: product ? product.price : it.price,
-                                type: product ? product.type : it.type,
-                                category: product ? product.category : it.category
-                              } : it)
-                            }));
-                          }}
-                          placeholder={isRTL ? 'اختر العنصر' : 'Select Item'}
+                          options={getProductOptionsForLine(item).map(i => ({ value: String(i.id), label: i.name }))}
+                          value={(item.item_id != null && item.item_id !== '' ? String(item.item_id) : (findCatalogProduct(products, { name: item.name, type: item.type, category: item.category })?.id != null ? String(findCatalogProduct(products, { name: item.name, type: item.type, category: item.category }).id) : ''))}
+                          onChange={val => handleLineItemSelect(index, val)}
+                          placeholder={serviceLine ? lineLabels.selectService : lineLabels.selectProduct}
                           className={`w-full ${errors[`item_name_${index}`] ? 'border-red-500' : ''}`}
                           isRTL={isRTL}
                           showAllOption={false}
+                          disabled={readOnly}
                         />
+                      {identityMeta ? (
+                        <div className="mt-1 text-[10px] text-theme-text/60 truncate">{identityMeta}</div>
+                      ) : null}
                     </div>
 
-                    <div className="col-span-1">
-                      <label className="text-[10px] font-bold uppercase text-gray-500 mb-1 block">{isRTL ? 'الكمية' : 'Qty'}</label>
-                      <input
-                        type="number"
-                        min="1"
-                        className={`input input-sm w-full ${errors[`item_qty_${index}`] ? 'border-red-500' : ''}`}
-                        value={item.quantity}
-                        onChange={e => updateItem(index, 'quantity', Number(e.target.value))}
+                    <div className="col-span-2">
+                      <SalesLineAddonsPicker
+                        line={item}
+                        catalogAddons={availableAddons}
+                        onChange={(next) => handleLineAddonsChange(index, next)}
+                        isRTL={isRTL}
+                        isDark={isDark}
+                        disabled={readOnly}
                       />
                     </div>
 
                     <div className="col-span-1">
-                      <label className="text-[10px] font-bold uppercase text-gray-500 mb-1 block">{isRTL ? 'السعر' : 'Price'}</label>
+                      <label className="text-[10px] font-bold uppercase text-gray-500 mb-1 block">
+                        {serviceLine ? lineLabels.billing : lineLabels.qty}
+                      </label>
+                      {serviceLine ? (
+                        <div className="input input-sm w-full opacity-80 cursor-default flex items-center">
+                          {formatServiceBillingLabel(billingValue, isRTL) || lineLabels.notApplicable}
+                        </div>
+                      ) : (
+                        <input
+                          type="number"
+                          min="1"
+                          className={`input input-sm w-full ${errors[`item_qty_${index}`] ? 'border-red-500' : ''}`}
+                          value={item.quantity}
+                          readOnly={readOnly}
+                          onChange={e => updateItem(index, 'quantity', Number(e.target.value))}
+                        />
+                      )}
+                    </div>
+
+                    <div className="col-span-1">
+                      <label className="text-[10px] font-bold uppercase text-gray-500 mb-1 block">{lineLabels.amount}</label>
                       <input
                         type="number"
                         min="0"
                         step="0.01"
                         className={`input input-sm w-full ${errors[`item_price_${index}`] ? 'border-red-500' : ''}`}
                         value={item.price}
+                        readOnly={readOnly}
                         onChange={e => updateItem(index, 'price', Number(e.target.value))}
                       />
                     </div>
 
-                    <div className="col-span-1">
-                      <label className="text-[10px] font-bold uppercase text-gray-500 mb-1 block">{isRTL ? 'الخصم' : 'Discount'}</label>
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        className="input input-sm w-full"
-                        value={item.discount}
-                        onChange={e => updateItem(index, 'discount', Number(e.target.value))}
-                      />
+                    <div className="col-span-2">
+                      <label className="text-[10px] font-bold uppercase text-gray-500 mb-1 block">{lineLabels.discount}</label>
+                      <div className="flex items-center gap-1">
+                        <select
+                          className="input input-sm w-[72px] shrink-0"
+                          value={item.discountType || 'value'}
+                          disabled={readOnly}
+                          onChange={e => updateItem(index, 'discountType', e.target.value)}
+                        >
+                          <option value="value">{isRTL ? 'قيمة' : 'Value'}</option>
+                          <option value="percent">%</option>
+                        </select>
+                        <input
+                          type="number"
+                          min="0"
+                          max={(item.discountType || 'value') === 'percent' ? 100 : undefined}
+                          step="0.01"
+                          className={`input input-sm w-full ${errors[`item_discount_${index}`] ? 'border-red-500' : ''}`}
+                          value={item.discount}
+                          readOnly={readOnly}
+                          onChange={e => updateItem(index, 'discount', Number(e.target.value))}
+                        />
+                      </div>
                     </div>
 
-                    <div className="col-span-1 flex flex-col justify-end items-end">
-                      <label className="text-[10px] font-bold uppercase text-gray-500 mb-1 block">{isRTL ? 'المجموع' : 'Total'}</label>
-                      <span className="font-bold text-lg text-blue-600">
-                        {((item.quantity * item.price) - item.discount).toLocaleString()}
+                    <div className="col-span-2 flex justify-between items-end pt-1">
+                      <label className="text-[10px] font-bold uppercase text-gray-500 mb-0.5 block">{lineLabels.total}</label>
+                      <span className="font-bold text-lg tabular-nums text-blue-600">
+                        {getQuotationLineTotal(item).toLocaleString()}
                       </span>
                     </div>
                   </div>
                 </div>
-              ))}
+                )
+              })}
               {formData.items.length === 0 && (
                 <div className="p-8 text-center text-theme-text opacity-50 italic border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-xl">
                   {isRTL ? 'لا توجد عناصر. أضف بند جديد.' : 'No items. Add a new item.'}
@@ -808,28 +1103,48 @@ const SalesOrdersFormModal = ({ isOpen, onClose, onSave, initialData = null, isR
           {/* Section 3: Financials & Attachments */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
             {/* Left: Notes & Attachments */}
-            <div className="space-y-4">
+            <div className={`space-y-4 rounded-xl border p-4 ${isDark ? 'border-gray-700/80 bg-gray-900/30' : 'border-gray-200 bg-slate-50/60'}`}>
                <div>
                 <label className={labelClass}>{isRTL ? 'ملاحظات' : 'Notes'}</label>
                 <div className="relative">
-                  <FaStickyNote className={`absolute ${isRTL ? 'right-3' : 'left-3'} top-3 text-theme-text`} />
+                  <FaStickyNote className={`pointer-events-none absolute ${isRTL ? 'right-3' : 'left-3'} top-3 ${isDark ? 'text-gray-500' : 'text-slate-400'}`} />
                   <textarea
                     value={formData.notes}
                     onChange={e => setFormData({...formData, notes: e.target.value})}
-                    className={`${inputClass} ${isRTL ? 'pr-10' : 'pl-10'} min-h-[80px] py-3`}
+                    className={`${inputClass} ${isRTL ? 'pr-10' : 'pl-10'} min-h-[88px] py-3`}
                     placeholder={isRTL ? 'أضف ملاحظات...' : 'Add notes...'}
+                    readOnly={readOnly}
                   />
                 </div>
               </div>
 
               <div>
                 <label className={labelClass}>{isRTL ? 'المرفقات' : 'Attachment'}</label>
-                <div className={`border-2 border-dashed rounded-lg p-4 text-center cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors ${isDark ? 'border-gray-700' : 'border-gray-300'}`}>
-                  <input type="file" className="hidden" id="file-upload" onChange={e => setFormData({...formData, attachment: e.target.files[0]})} />
-                  <label htmlFor="file-upload" className="cursor-pointer flex flex-col items-center gap-2">
-                    <FaPaperclip className="text-gray-400" size={24} />
-                    <span className="text-sm text-theme-text ">
-                      {formData.attachment ? formData.attachment.name : (isRTL ? 'انقر لرفع ملف' : 'Click to upload file')}
+                <div className={`border border-dashed rounded-xl p-4 text-center transition-colors ${
+                  isDark
+                    ? 'border-gray-600 bg-gray-800/40 hover:bg-gray-800/70'
+                    : 'border-gray-300 bg-white hover:bg-slate-50'
+                } ${readOnly ? 'opacity-70 pointer-events-none' : 'cursor-pointer'}`}>
+                  <input
+                    type="file"
+                    className="hidden"
+                    id="sales-order-file-upload"
+                    disabled={readOnly}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0] || null
+                      setFormData((prev) => ({ ...prev, attachment: file }))
+                    }}
+                  />
+                  <label htmlFor="sales-order-file-upload" className={`flex flex-col items-center gap-2 ${readOnly ? '' : 'cursor-pointer'}`}>
+                    <span className={`inline-flex h-10 w-10 items-center justify-center rounded-full ${isDark ? 'bg-gray-700/80 text-gray-300' : 'bg-slate-100 text-slate-500'}`}>
+                      <FaPaperclip size={16} />
+                    </span>
+                    <span className={`text-sm max-w-full truncate px-2 ${formData.attachment ? (isDark ? 'text-gray-200 font-medium' : 'text-slate-700 font-medium') : 'text-gray-500'}`}>
+                      {formData.attachment instanceof File
+                        ? formData.attachment.name
+                        : (typeof formData.attachment === 'string' && formData.attachment
+                          ? formData.attachment.split('/').pop()
+                          : (isRTL ? 'انقر لرفع ملف' : 'Click to upload file'))}
                     </span>
                   </label>
                 </div>
@@ -837,22 +1152,21 @@ const SalesOrdersFormModal = ({ isOpen, onClose, onSave, initialData = null, isR
             </div>
 
             {/* Right: Totals */}
-            <div className={`p-4 rounded-xl ${isDark ? 'bg-gray-800/50' : 'bg-gray-50'}`}>
-              <div className="space-y-3">
+            <div className={`p-5 rounded-xl border ${isDark ? 'bg-gray-800/50 border-gray-700' : 'bg-slate-50 border-gray-200'}`}>
+              <div className="space-y-3.5">
                 <div className="flex justify-between items-center text-sm">
-                  <span className="text-theme-text">{isRTL ? 'المجموع الفرعي' : 'Subtotal'}</span>
-                  <span className="font-medium">{subtotal.toLocaleString()}</span>
+                  <span className={`${isDark ? 'text-gray-300' : 'text-slate-600'}`}>{isRTL ? 'المجموع الفرعي' : 'Subtotal'}</span>
+                  <span className="font-medium tabular-nums text-theme-text">{subtotal.toLocaleString()}</span>
                 </div>
 
-                <div className="flex justify-between items-center text-sm">
-                  <div className="flex items-center gap-2">
-                    <span className="text-theme-text">{isRTL ? 'قيمة الخصم' : 'Discount Value'}</span>
-                  </div>
+                <div className="flex justify-between items-center text-sm gap-3">
+                  <span className={`${isDark ? 'text-gray-300' : 'text-slate-600'}`}>{isRTL ? 'قيمة الخصم' : 'Discount Value'}</span>
                   <input
                     type="number"
                     min="0"
                     step="0.01"
-                    className="input input-sm w-24 text-end text-green-600 font-medium"
+                    readOnly={readOnly}
+                    className="input input-sm w-28 text-end text-green-600 font-medium tabular-nums"
                     value={globalDiscountAmount ? parseFloat(globalDiscountAmount.toFixed(2)) : 0}
                     onChange={e => {
                        const val = parseFloat(e.target.value);
@@ -863,50 +1177,68 @@ const SalesOrdersFormModal = ({ isOpen, onClose, onSave, initialData = null, isR
                   />
                 </div>
                 
-                <div className="flex justify-between items-center text-sm">
-                  <div className="flex items-center gap-2">
-                    <span className="text-theme-text">{isRTL ? 'الضريبة' : 'Tax'}</span>
-                    <label className="flex items-center gap-2 cursor-pointer">
+                <div className="flex justify-between items-center text-sm gap-3">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className={`whitespace-nowrap ${isDark ? 'text-gray-300' : 'text-slate-600'}`}>{isRTL ? 'الضريبة' : 'Tax'}</span>
+                    <label className={`flex items-center gap-1.5 select-none ${readOnly ? 'opacity-70' : 'cursor-pointer'}`}>
                       <input 
                         type="checkbox" 
                         className="checkbox checkbox-xs checkbox-primary"
-                        checked={formData.isTaxEnabled}
+                        checked={coerceTaxEnabled(formData.isTaxEnabled)}
+                        disabled={readOnly}
                         onChange={(e) => {
                            const isEnabled = e.target.checked
-                           const taxableAmount = subtotal - globalDiscountAmount
-                           setFormData(prev => ({ 
-                             ...prev, 
-                             isTaxEnabled: isEnabled,
-                             tax: isEnabled ? taxableAmount * 0.14 : 0
-                           }))
+                           setFormData(prev => {
+                             const rate = resolveActiveTaxRate(prev.taxRate)
+                             return {
+                               ...prev,
+                               isTaxEnabled: isEnabled,
+                               taxRate: rate,
+                               tax: isEnabled ? taxableBase * (rate / 100) : 0,
+                             }
+                           })
                         }}
                       />
-                      <span className="text-xs text-gray-500">{isRTL ? 'تطبيق 14%' : 'Apply 14%'}</span>
+                      <span className="text-xs text-gray-500">{isRTL ? 'تطبيق' : 'Apply'}</span>
                     </label>
                   </div>
-                  {formData.isTaxEnabled ? (
+                  <div className="flex items-center gap-2 shrink-0">
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={resolveActiveTaxRate(formData.taxRate)}
+                        onChange={(e) => {
+                          const raw = e.target.value
+                          const nextRate = raw === '' ? DEFAULT_TAX_RATE : Math.max(0, Number(raw) || 0)
+                          setFormData(prev => ({
+                            ...prev,
+                            taxRate: nextRate,
+                            tax: prev.isTaxEnabled ? taxableBase * (nextRate / 100) : 0,
+                          }))
+                        }}
+                        className="input input-sm w-[4.5rem] text-center px-2 tabular-nums"
+                        disabled={readOnly || !coerceTaxEnabled(formData.isTaxEnabled)}
+                        aria-label={isRTL ? 'نسبة الضريبة' : 'Tax rate'}
+                      />
+                      <span className="text-xs font-semibold text-gray-500 w-4 text-center">%</span>
+                    </div>
                     <input
                       type="text"
                       value={(Number(formData.tax) || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                      className="input input-sm w-24 text-end opacity-70 cursor-not-allowed bg-gray-100 dark:bg-gray-700"
+                      className="input input-sm w-28 text-end opacity-80 cursor-not-allowed bg-gray-100 dark:bg-gray-700 tabular-nums"
                       readOnly
+                      aria-label={isRTL ? 'قيمة الضريبة' : 'Tax amount'}
                     />
-                  ) : (
-                    <input
-                      type="number"
-                      value={Number(formData.tax) || 0}
-                      onChange={e => setFormData({...formData, tax: Number(e.target.value)})}
-                      className="input input-sm w-24 text-end"
-                      placeholder="0.00"
-                    />
-                  )}
+                  </div>
                 </div>
                 
                 <div className={`h-px w-full ${isDark ? 'bg-gray-700' : 'bg-gray-200'}`} />
                 
-                <div className="flex justify-between items-center text-lg font-bold">
-                  <span className="text-theme-text">{isRTL ? 'الإجمالي' : 'Total'}</span>
-                  <span className="text-blue-600">{total.toLocaleString()}</span>
+                <div className="flex justify-between items-center text-lg font-bold text-blue-600">
+                  <span>{isRTL ? 'الإجمالي' : 'Total'}</span>
+                  <span className="tabular-nums">{total.toLocaleString()}</span>
                 </div>
               </div>
 

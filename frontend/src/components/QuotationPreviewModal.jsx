@@ -1,21 +1,73 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useReactToPrint } from 'react-to-print'
-import { FaDownload, FaPaperclip, FaPrint, FaTimes } from 'react-icons/fa'
+import { FaDownload, FaEye, FaPaperclip, FaPrint, FaTimes } from 'react-icons/fa'
 import { useAppState } from '@shared/context/AppStateProvider'
 import { extractTenantCompanyProfile } from '@shared/utils/tenantCompanyProfile'
+import { resolveDocumentCustomerAddress } from '@shared/utils/customerAddress'
 import { useTheme } from '@shared/context/ThemeProvider'
-import { api } from '../utils/api'
+import { api, getApiUrl } from '../utils/api'
+import { getQuotationLineDiscountAmount, getQuotationLineTotal } from './QuotationsFormModal'
 
 function resolveQuotationAttachmentUrl(pathOrUrl) {
   if (!pathOrUrl) return ''
-  const value = String(pathOrUrl)
-  if (/^https?:\/\//i.test(value) || value.startsWith('blob:') || value.startsWith('data:')) return value
-  const clean = value.replace(/^\/+/, '').replace(/^storage\//, '')
-  return `/storage/${clean}`
+  const value = String(pathOrUrl).trim()
+  if (!value) return ''
+  if (value.startsWith('blob:') || value.startsWith('data:')) return value
+
+  let relative = value
+  try {
+    if (/^https?:\/\//i.test(value)) {
+      const parsed = new URL(value)
+      const storageIdx = parsed.pathname.indexOf('/storage/')
+      if (storageIdx !== -1) {
+        relative = parsed.pathname.slice(storageIdx + '/storage/'.length)
+      } else {
+        const publicIdx = parsed.pathname.indexOf('/api/public-files/')
+        if (publicIdx !== -1) {
+          relative = parsed.pathname.slice(publicIdx + '/api/public-files/'.length)
+        } else {
+          return value
+        }
+      }
+    } else {
+      relative = value
+        .replace(/^\/+/, '')
+        .replace(/^storage\//, '')
+        .replace(/^api\/public-files\//, '')
+    }
+  } catch {
+    relative = value.replace(/^\/+/, '').replace(/^storage\//, '')
+  }
+
+  relative = String(relative || '').replace(/^\/+/, '')
+  if (!relative) return ''
+
+  const base = String(getApiUrl() || '/api').replace(/\/+$/, '')
+  if (base.endsWith('/api')) return `${base}/public-files/${relative}`
+  return `${base}/api/public-files/${relative}`
 }
 
-function QuotationPreviewModal({ isOpen, onClose, quotation }) {
+async function downloadQuotationAttachment(url, filename) {
+  if (!url) return
+  try {
+    const response = await fetch(url, { credentials: 'include' })
+    if (!response.ok) throw new Error('download_failed')
+    const blob = await response.blob()
+    const objectUrl = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = objectUrl
+    anchor.download = filename || 'attachment'
+    document.body.appendChild(anchor)
+    anchor.click()
+    anchor.remove()
+    URL.revokeObjectURL(objectUrl)
+  } catch {
+    window.open(url, '_blank', 'noopener,noreferrer')
+  }
+}
+
+function QuotationPreviewModal({ isOpen, onClose, quotation, customers = [] }) {
   const { i18n } = useTranslation()
   const isRTL = i18n.dir() === 'rtl'
   const { company, crmSettings } = useAppState()
@@ -57,7 +109,7 @@ function QuotationPreviewModal({ isOpen, onClose, quotation }) {
       issueDate: quotation.createdAt || quotation.created_at || quotation.date || null,
       expiryDate: quotation.expiryDate || quotation.expiry_date || null,
       customerName: quotation.customerName || quotation.customer_name || (isRTL ? 'عميل غير محدد' : 'Unnamed customer'),
-      customerAddress: quotation.customerAddress || quotation.customer_address || quotation.address || quotation.customer?.address || '',
+      customerAddress: resolveDocumentCustomerAddress(quotation, customers),
       paymentTerms: quotation.paymentTerms || quotation.payment_terms || '',
       currency: currencyCode,
       notes: quotation.notes || '',
@@ -65,7 +117,7 @@ function QuotationPreviewModal({ isOpen, onClose, quotation }) {
       attachmentName: quotation.attachmentName || quotation.attachment_name || quotation.meta_data?.attachment_name || quotation.metaData?.attachment_name || 'Attachment',
       attachments: Array.isArray(quotation.attachments) ? quotation.attachments : (Array.isArray(quotation.meta_data?.attachments) ? quotation.meta_data.attachments : []),
     }
-  }, [currencyCode, isRTL, quotation])
+  }, [currencyCode, customers, isRTL, quotation])
 
   useEffect(() => {
     if (!isOpen) setShowAttachments(false)
@@ -168,7 +220,15 @@ function QuotationPreviewModal({ isOpen, onClose, quotation }) {
 
   const formatItemMeta = (item) => {
     const meta = [String(item.type || '').trim(), String(item.category || '').trim()].filter(Boolean)
-    return meta.length ? `(${meta.join(', ')})` : ''
+    const addonNames = (Array.isArray(item.addons) ? item.addons : [])
+      .map((addon) => String(addon?.name || '').trim())
+      .filter(Boolean)
+    const base = meta.length ? `(${meta.join(', ')})` : ''
+    if (!addonNames.length) return base
+    const addonsLabel = isRTL
+      ? `إضافات: ${addonNames.join('، ')}`
+      : `Add-ons: ${addonNames.join(', ')}`
+    return base ? `${base} · ${addonsLabel}` : addonsLabel
   }
 
   if (!isOpen || !normalizedQuotation) return null
@@ -314,24 +374,49 @@ function QuotationPreviewModal({ isOpen, onClose, quotation }) {
                   {attachments.map((attachment, index) => {
                     const name = attachment?.name || attachment?.file_name || attachment?.filename || normalizedQuotation.attachmentName || (isRTL ? 'ملف' : 'File')
                     const url = resolveQuotationAttachmentUrl(attachment?.url || attachment?.download_url || attachment?.path)
+                    const size = Number(attachment?.size || 0)
+                    const sizeLabel = size > 0
+                      ? (size >= 1024 ? `${(size / 1024).toFixed(1)} KB` : `${size} B`)
+                      : ''
+                    const dateLabel = attachment?.created_at ? new Date(attachment.created_at).toLocaleDateString() : ''
+                    const meta = [sizeLabel, dateLabel].filter(Boolean).join(' • ')
                     return (
-                      <button
+                      <div
                         key={attachment?.id || `${name}-${index}`}
-                        type="button"
-                        onClick={() => url && window.open(url, '_blank')}
-                        className="flex w-full items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-left transition hover:border-sky-200 hover:bg-sky-50"
+                        className="flex w-full items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3"
                       >
-                        <div className="flex items-center gap-3">
-                          <div className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-sky-100 text-sky-700">
+                        <div className="flex min-w-0 items-center gap-3">
+                          <div className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-sky-100 text-sky-700">
                             <FaPaperclip />
                           </div>
-                          <div>
-                            <div className="text-sm font-semibold text-slate-900">{name}</div>
-                            <div className="text-xs text-slate-500">{isRTL ? 'انقر للتحميل' : 'Click to download'}</div>
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-semibold text-slate-900" title={name}>{name}</div>
+                            {meta
+                              ? <div className="text-xs text-slate-500">{meta}</div>
+                              : <div className="text-xs text-slate-500">{isRTL ? 'مرفق' : 'Attachment'}</div>}
                           </div>
                         </div>
-                        <FaDownload className="text-slate-400" />
-                      </button>
+                        <div className="flex shrink-0 items-center gap-1.5">
+                          <button
+                            type="button"
+                            disabled={!url}
+                            onClick={() => url && window.open(url, '_blank', 'noopener,noreferrer')}
+                            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-sky-600 transition hover:border-sky-200 hover:bg-sky-50 disabled:cursor-not-allowed disabled:opacity-40"
+                            title={isRTL ? 'عرض' : 'View'}
+                          >
+                            <FaEye size={14} />
+                          </button>
+                          <button
+                            type="button"
+                            disabled={!url}
+                            onClick={() => downloadQuotationAttachment(url, name)}
+                            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 transition hover:border-slate-300 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
+                            title={isRTL ? 'تحميل' : 'Download'}
+                          >
+                            <FaDownload size={14} />
+                          </button>
+                        </div>
+                      </div>
                     )
                   })}
                 </div>
@@ -451,7 +536,7 @@ function QuotationPreviewModal({ isOpen, onClose, quotation }) {
                             {isRTL ? 'الكمية' : 'Qty'}
                           </th>
                           <th className="px-4 py-4 text-end text-xs font-semibold uppercase tracking-[0.24em]">
-                            {isRTL ? 'سعر الوحدة' : 'Unit Price'}
+                            {isRTL ? 'المبلغ' : 'Amount'}
                           </th>
                           <th className="px-4 py-4 text-end text-xs font-semibold uppercase tracking-[0.24em]">
                             {isRTL ? 'الخصم' : 'Discount'}
@@ -466,8 +551,12 @@ function QuotationPreviewModal({ isOpen, onClose, quotation }) {
                           normalizedQuotation.items.map((item, index) => {
                             const quantity = getItemQuantity(item)
                             const unitPrice = Number(item.price || item.unit_price || item.unitPrice || 0)
-                            const discount = Number(item.discount || 0)
-                            const lineTotal = (quantity * unitPrice) - discount
+                            const discount = getQuotationLineDiscountAmount(item)
+                            const lineTotal = getQuotationLineTotal(item)
+                            const discountType = String(item.discountType || item.discount_type || 'value').toLowerCase()
+                            const discountLabel = discountType === 'percent'
+                              ? `${Number(item.discount || 0)}% (${formatMoney(discount)})`
+                              : formatMoney(discount)
 
                             return (
                               <tr key={`${item.id || item.name || 'item'}-${index}`} className={`${itemRowClass} print-light-row print-light-text print-light-border`}>
@@ -478,7 +567,7 @@ function QuotationPreviewModal({ isOpen, onClose, quotation }) {
                                 </td>
                                 <td className={`px-4 py-4 text-center text-sm font-medium ${mainTextClass}`}>{quantity}</td>
                                 <td className={`px-4 py-4 text-end text-sm font-medium ${mainTextClass}`}>{formatMoney(unitPrice)}</td>
-                                <td className={`px-4 py-4 text-end text-sm font-medium ${mainTextClass}`}>{formatMoney(discount)}</td>
+                                <td className={`px-4 py-4 text-end text-sm font-medium ${mainTextClass}`}>{discountLabel}</td>
                                 <td className={`px-4 py-4 text-end text-sm font-semibold ${isDark ? 'text-white' : 'text-slate-950'}`}>{formatMoney(lineTotal)}</td>
                               </tr>
                             )

@@ -6,22 +6,26 @@ import "react-datepicker/dist/react-datepicker.css"
 import { api, logExportEvent } from '../utils/api'
 import { useTheme } from '../shared/context/ThemeProvider'
 import { useAppState } from '../shared/context/AppStateProvider' // crm currency
-import { FaEdit, FaCheck, FaPlay, FaPause, FaBan, FaCheckDouble, FaDownload, FaPlus, FaFileImport, FaEye, FaTrash, FaStickyNote, FaShoppingCart, FaFileInvoiceDollar, FaUndo, FaEllipsisV } from 'react-icons/fa'
+import { FaEdit, FaBan, FaDownload, FaPlus, FaFileImport, FaEye, FaTrash, FaStickyNote, FaShoppingCart, FaFileInvoiceDollar, FaEllipsisV } from 'react-icons/fa'
 import { Filter, ChevronDown, Search, User, DollarSign, Calendar } from 'lucide-react'
 import SearchableSelect from '../components/SearchableSelect'
 import SalesOrdersFormModal from '../components/SalesOrdersFormModal'
 import SalesInvoicesFormModal from '../components/SalesInvoicesFormModal'
 import SalesOrderPreviewModal from '../components/SalesOrderPreviewModal'
 import SalesOrdersImportModal from '../components/SalesOrdersImportModal'
+import { resolveDocumentCustomerAddress } from '../shared/utils/customerAddress'
+import { pickAttachmentFile, uploadDocumentAttachments } from '../shared/utils/uploadDocumentAttachments'
+import { isSuperAdminUser, isTenantAdminUser } from '../services/leadPermissions'
 import * as XLSX from 'xlsx'
 
 export default function SalesOrders() {
   const { t, i18n } = useTranslation()
   const { theme } = useTheme()
-  const { crmSettings } = useAppState()
+  const { crmSettings, user } = useAppState()
   const isLight = theme === 'light'
   const isRTL = String(i18n.language || '').startsWith('ar')
   const crmCurrency = String(crmSettings?.defaultCurrency || crmSettings?.default_currency || 'EGP').toUpperCase()
+  const canDeleteOrder = isSuperAdminUser(user) || isTenantAdminUser(user)
 
   // State
   const [items, setItems] = useState([])
@@ -99,40 +103,60 @@ export default function SalesOrders() {
     setTimeout(() => setErrorMessage(''), 4000)
   }
 
-  const getAvailableActions = (status) => {
-    const s = String(status || '').toLowerCase().trim()
+  const normalizeOrderStatus = (status) => String(status || '').toLowerCase().trim().replace(/[_-]+/g, ' ')
 
-    if (s === 'draft') {
-      return [
-        { type: 'confirm', label: isRTL ? 'تأكيد الطلب' : 'Confirm Order', icon: FaCheck, color: 'text-green-600' },
-        { type: 'edit', label: isRTL ? 'تعديل' : 'Edit Order', icon: FaEdit, color: 'text-blue-600' },
-        { type: 'cancel', label: isRTL ? 'إلغاء' : 'Cancel Order', icon: FaBan, color: 'text-red-600' },
-      ]
+  const canCreateInvoiceForOrder = (order) => {
+    const s = normalizeOrderStatus(order?.status)
+    return s !== 'cancelled' && s !== 'fully invoiced'
+  }
+
+  const canCancelOrder = (order) => {
+    const s = normalizeOrderStatus(order?.status)
+    return s !== 'cancelled' && s !== 'fully invoiced'
+  }
+
+  const getMenuActions = (order) => {
+    const actions = []
+    if (canCreateInvoiceForOrder(order)) {
+      actions.push({
+        type: 'create_invoice',
+        label: isRTL ? 'إنشاء فاتورة' : 'Create Invoice',
+        icon: FaFileInvoiceDollar,
+        color: 'text-green-600',
+      })
     }
-
-    if (s === 'confirmed') {
-      return [
-        { type: 'process', label: isRTL ? 'بدء التنفيذ' : 'Start Processing', icon: FaPlay, color: 'text-blue-600' },
-        { type: 'hold', label: isRTL ? 'تعليق' : 'Put On Hold', icon: FaPause, color: 'text-orange-600' },
-        { type: 'cancel', label: isRTL ? 'إلغاء' : 'Cancel Order', icon: FaBan, color: 'text-red-600' },
-      ]
+    if (canCancelOrder(order)) {
+      actions.push({
+        type: 'cancel',
+        label: isRTL ? 'إلغاء الطلب' : 'Cancel Order',
+        icon: FaBan,
+        color: 'text-orange-600',
+      })
     }
-
-    if (s === 'in progress' || s === 'in_progress' || s === 'in-progress') {
-      return [
-        { type: 'complete', label: isRTL ? 'إكمال الطلب' : 'Complete Order', icon: FaCheckDouble, color: 'text-green-600' },
-        { type: 'hold', label: isRTL ? 'تعليق' : 'Put On Hold', icon: FaPause, color: 'text-orange-600' },
-        { type: 'cancel', label: isRTL ? 'إلغاء' : 'Cancel Order', icon: FaBan, color: 'text-red-600' },
-      ]
+    if (canDeleteOrder) {
+      actions.push({
+        type: 'delete',
+        label: isRTL ? 'حذف' : 'Delete',
+        icon: FaTrash,
+        color: 'text-red-600',
+      })
     }
+    return actions
+  }
 
-    if (s === 'on hold' || s === 'on_hold' || s === 'on-hold') {
-      return [
-        { type: 'resume', label: isRTL ? 'استئناف' : 'Resume', icon: FaPlay, color: 'text-blue-600' },
-      ]
+  const handleMenuAction = (order, actionType) => {
+    if (actionType === 'create_invoice') {
+      handleCreateInvoice(order, 'Full')
+      return
     }
-
-    return []
+    if (actionType === 'cancel') {
+      handleStatusAction(order, 'cancel')
+      return
+    }
+    if (actionType === 'delete') {
+      if (!canDeleteOrder) return
+      handleDelete(order.id)
+    }
   }
 
   const handleCreateInvoice = (order, type) => {
@@ -156,21 +180,20 @@ export default function SalesOrders() {
     let items = []
     
     if (type === 'Advance') {
-      // Advance Invoice: Single item for percentage
-      // Calculate 30% default
+      // Deferred Payment (API value: Advance): single line for collection amount
       const advanceAmount = order.total * 0.30
       
       items = [{
         id: Date.now(),
-        name: `${isRTL ? 'دفعة مقدمة لطلب' : 'Advance Payment for Order'} #${order.id}`,
-        description: isRTL ? 'دفعة مقدمة' : 'Advance Payment',
+        name: `${isRTL ? 'دفع مؤجل لطلب' : 'Deferred Payment for Order'} #${order.id}`,
+        description: isRTL ? 'دفع مؤجل' : 'Deferred Payment',
         quantity: 1,
         price: advanceAmount,
         type: 'Service',
         category: 'Financial'
       }]
       
-      // Reset tax/discount for advance as it's usually flat amount (simplification)
+      // Reset tax/discount for deferred as it's usually flat amount (simplification)
       baseInvoice.tax = 0
       baseInvoice.discountRate = 0
       
@@ -253,7 +276,7 @@ export default function SalesOrders() {
         advance_applied_amount: toNumber(data?.advanceAppliedAmount ?? 0, 0),
         status: data?.status || 'Draft',
         payment_method: data?.paymentMethod || null,
-        payment_terms: data?.paymentTerms || null,
+        payment_terms: String(data?.invoiceType) === 'Full' ? null : (data?.paymentTerms || null),
         currency: data?.currency || crmCurrency,
         notes: data?.notes || null,
       }
@@ -379,15 +402,6 @@ export default function SalesOrders() {
 
       showSuccess(isRTL ? 'تم تحديث الحالة بنجاح' : 'Status updated successfully')
 
-      if (actionData.type === 'confirm') {
-        const orderForInvoice = {
-          ...(actionData.orderSnapshot || {}),
-          ...returned,
-          status: updates.status,
-        }
-        handleCreateInvoice(orderForInvoice, 'Full')
-      }
-
       setShowStatusModal(false)
       setStatusAction(null)
       setStatusReason('')
@@ -416,8 +430,6 @@ export default function SalesOrders() {
       if (String(filters.status || '').trim()) params.status = String(filters.status).trim()
 
       const response = await api.get('/api/sales-orders', { params })
-      
-      console.log('Fetch Orders Response:', response.data); // Debugging Log
 
       // Laravel paginate returns data inside response.data.data
       // And pagination meta in response.data (current_page, last_page, etc.)
@@ -433,12 +445,19 @@ export default function SalesOrders() {
       }
 
       // Map snake_case to camelCase
-      const mappedItems = data.map(item => ({
+      const mappedItems = data.map(item => {
+        let meta = item?.meta_data ?? item?.metaData ?? null
+        if (typeof meta === 'string') {
+          try { meta = JSON.parse(meta) } catch { meta = null }
+        }
+        if (!meta || typeof meta !== 'object' || Array.isArray(meta)) meta = {}
+        return {
         ...item,
         id: item.id,
         uuid: item.uuid || `SO-${item.id}`,
         customerName: item.customer_name,
         customerCode: item.customer_code,
+        customerAddress: resolveDocumentCustomerAddress(item, customersList),
         salesPerson: item.sales_person,
         total: parseFloat(item.total) || 0,
         deliveryDate: item.delivery_date,
@@ -451,10 +470,10 @@ export default function SalesOrders() {
         holdReason: item.hold_reason,
         discountRate: item.discount_rate,
         status: item.status,
-        attachments: Array.isArray(item?.meta_data?.attachments) ? item.meta_data.attachments : [],
-      }))
+        attachments: Array.isArray(meta.attachments) ? meta.attachments : [],
+        meta_data: meta,
+      }})
 
-      console.log('Mapped Items:', mappedItems); // Debugging Log
       setItems(mappedItems)
       setError('')
     } catch (err) {
@@ -612,6 +631,11 @@ export default function SalesOrders() {
   }
 
   const handleDelete = async (id) => {
+    if (!canDeleteOrder) {
+      alert(isRTL ? 'الحذف متاح للمسؤول فقط' : 'Delete is available for admins only')
+      return
+    }
+
     const orderToDelete = items.find(i => i.id === id)
     if (orderToDelete && ['Confirmed', 'In Progress', 'Completed', 'Fully Invoiced', 'Partially Invoiced'].includes(orderToDelete.status)) {
       alert(isRTL ? 'لا يمكن حذف طلب تم تأكيده أو تنفيذه. يرجى إلغاؤه أولاً.' : 'Cannot delete an active or processed order. Please cancel it first.')
@@ -649,6 +673,7 @@ export default function SalesOrders() {
   }
 
   const handleSave = async (orderData) => {
+    const attachmentFile = pickAttachmentFile(orderData?.attachment)
     try {
       // Prepare payload for backend (snake_case)
       const payload = {
@@ -678,29 +703,38 @@ export default function SalesOrders() {
       if (editingItem) {
         const res = await api.put(`/api/sales-orders/${editingItem.id}`, payload)
         savedOrder = res?.data || null
-        showSuccess(isRTL ? 'تم تحديث الطلب بنجاح' : 'Order updated successfully')
       } else {
         payload.status = 'Draft'
         const res = await api.post('/api/sales-orders', payload)
         savedOrder = res?.data || null
-        showSuccess(isRTL ? 'تم إنشاء الطلب بنجاح' : 'Order created successfully')
       }
 
       const orderId = savedOrder?.id || editingItem?.id
-      if (orderId && orderData?.attachment instanceof File) {
-        const fd = new FormData()
-        fd.append('files[]', orderData.attachment)
-        try {
-          await api.post(`/api/sales-orders/${orderId}/attachments`, fd, {
-            headers: { 'Content-Type': 'multipart/form-data' },
-          })
-        } catch (e) {
-          console.error('Failed to upload attachment:', e)
+      if (attachmentFile) {
+        if (!orderId) {
+          alert(isRTL
+            ? 'تم حفظ الطلب لكن تعذر رفع المرفق (معرف الطلب مفقود)'
+            : 'Order saved but attachment could not be uploaded (missing order id)')
+        } else {
+          try {
+            await uploadDocumentAttachments(api, `/api/sales-orders/${orderId}/attachments`, attachmentFile)
+          } catch (e) {
+            console.error('Failed to upload attachment:', e)
+            alert(isRTL
+              ? 'تم حفظ الطلب لكن فشل رفع المرفق'
+              : 'Order saved but attachment upload failed')
+            await fetchOrders()
+            setShowForm(false)
+            setEditingItem(null)
+            return
+          }
         }
       }
 
       await fetchOrders()
-      
+      showSuccess(editingItem
+        ? (isRTL ? 'تم تحديث الطلب بنجاح' : 'Order updated successfully')
+        : (isRTL ? 'تم إنشاء الطلب بنجاح' : 'Order created successfully'))
       setShowForm(false)
       setEditingItem(null)
     } catch (error) {
@@ -762,7 +796,7 @@ export default function SalesOrders() {
       'Quotation Code': quotationCodeById[String(item.quotationId)] || item.quotationId,
       'Items Count': Array.isArray(item.items) ? item.items.length : 0,
       'Delivery Date': item.deliveryDate ? new Date(item.deliveryDate).toLocaleDateString() : '',
-      'Total': item.total,
+      'Total Amount': item.total,
       'Attachments': item.attachments ? item.attachments.length : 0,
       'Created By': item.createdBy,
       'Sales Person': item.salesPerson,
@@ -1138,16 +1172,13 @@ export default function SalesOrders() {
                     {isRTL ? 'تاريخ التوصيل' : 'Delivery Date'}
                   </th>
                   <th onClick={() => handleSort('total')} className="p-4 cursor-pointer hover:text-blue-600 whitespace-nowrap transition-colors min-w-[120px]">
-                    {isRTL ? 'الإجمالي' : 'Total'}
+                    {isRTL ? 'إجمالي المبلغ' : 'Total Amount'}
                   </th>
                   {false && (
                   <th onClick={() => handleSort('paymentTerms')} className="p-4 cursor-pointer hover:text-blue-600 whitespace-nowrap transition-colors min-w-[140px]">
                     {isRTL ? 'شروط الدفع' : 'Payment Terms'}
                   </th>
                   )}
-                  <th className="p-4 whitespace-nowrap min-w-[100px]">
-                    {isRTL ? 'المرفقات' : 'Attachment'}
-                  </th>
                   <th onClick={() => handleSort('createdBy')} className="p-4 cursor-pointer hover:text-blue-600 whitespace-nowrap transition-colors min-w-[140px]">
                     {isRTL ? 'تم الإنشاء بواسطة' : 'Created By'}
                   </th>
@@ -1165,7 +1196,7 @@ export default function SalesOrders() {
               <tbody className="divide-y divide-[var(--border-color)] text-sm">
                 {paginatedItems.length === 0 ? (
                   <tr>
-                    <td colSpan={14} className="p-8 text-center text-[var(--muted-text)]">
+                    <td colSpan={13} className="p-8 text-center text-[var(--muted-text)]">
                       <div className="flex flex-col items-center justify-center gap-3">
                         <div className="w-16 h-16 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center text-3xl">🔍</div>
                         <p>{isRTL ? 'لا توجد بيانات' : 'No data found'}</p>
@@ -1232,15 +1263,6 @@ export default function SalesOrders() {
                       {false && (
                         <td className="p-4 text-[var(--muted-text)]">{item.paymentTerms || '-'}</td>
                       )}
-                      <td className="p-4 text-center">
-                        {item.attachments && item.attachments.length > 0 ? (
-                          <span className="flex items-center justify-center gap-1 text-blue-600 text-xs">
-                            <FaFileImport size={12} /> {item.attachments.length}
-                          </span>
-                        ) : (
-                          <span className="text-gray-300">-</span>
-                        )}
-                      </td>
                       <td className={`p-4 ${isLight ? 'text-black' : 'text-white'}`}>{item.createdBy || '-'}</td>
                       <td className={`p-4 ${isLight ? 'text-black' : 'text-white'}`}>{item.salesPerson || '-'}</td>
                       <td className="p-4 text-[var(--muted-text)]">
@@ -1248,81 +1270,67 @@ export default function SalesOrders() {
                       </td>
                       <td className={`p-4 whitespace-nowrap ${activeRowId === item.id ? 'sticky ltr:right-0 rtl:left-0  shadow-[-10px_0_15px_-3px_rgba(0,0,0,0.1)] dark:shadow-none z-10' : ''}`}>
                         <div className="flex items-center justify-end gap-2">
-                          {/* Primary Action */}
-                          {getAvailableActions(item.status)[0] && (
-                            <button 
-                              type="button"
-                              disabled={statusUpdatingId === item.id}
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                handleStatusAction(item, getAvailableActions(item.status)[0].type)
-                              }}
-                              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors shadow-sm ${getAvailableActions(item.status)[0].color.replace('text-', 'bg-').replace('600', '100')} ${getAvailableActions(item.status)[0].color} dark:bg-opacity-20 disabled:opacity-60 disabled:cursor-wait`}
-                              title={getAvailableActions(item.status)[0].label}
-                            >
-                              {React.createElement(getAvailableActions(item.status)[0].icon, { size: 12 })}
-                              <span className="hidden xl:inline">{getAvailableActions(item.status)[0].label}</span>
-                            </button>
-                          )}
-
-                          {/* View Button */}
                           <button 
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation()
                               handleView(item)
                             }}
-                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700 transition-colors shadow-sm"
-                            title={isRTL ? 'عرض' : 'View'}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-50 text-blue-600 hover:bg-blue-100 dark:bg-blue-900/20 dark:text-blue-400 dark:hover:bg-blue-900/40 transition-colors shadow-sm"
+                            title={isRTL ? 'معاينة' : 'Preview'}
                           >
                             <FaEye size={12} />
-                            <span className="hidden xl:inline">{isRTL ? 'عرض' : 'View'}</span>
+                            <span className="hidden xl:inline">{isRTL ? 'معاينة' : 'Preview'}</span>
                           </button>
 
-                          {/* Dropdown for other actions */}
-                          {(getAvailableActions(item.status).length > 1 || true) && (
-                            <div className="relative">
+                          <button 
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleEdit(item)
+                            }}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-50 text-amber-600 hover:bg-amber-100 dark:bg-amber-900/20 dark:text-amber-400 dark:hover:bg-amber-900/40 transition-colors shadow-sm"
+                            title={isRTL ? 'تعديل' : 'Edit'}
+                          >
+                            <FaEdit size={12} />
+                            <span className="hidden xl:inline">{isRTL ? 'تعديل' : 'Edit'}</span>
+                          </button>
+
+                          {getMenuActions(item).length > 0 && (
+                            <div className="relative" onClick={(e) => e.stopPropagation()}>
                               <button 
                                 type="button"
                                 onClick={(e) => {
                                   e.stopPropagation()
                                   setActiveActionDropdown(activeActionDropdown === item.id ? null : item.id)
                                 }}
-                                className={`flex items-center justify-center w-8 h-8 rounded-lg bg-blue-600 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors ${isLight ? 'text-black' : 'text-white'} dark:text-gray-400`}
+                                className="flex items-center justify-center w-8 h-8 rounded-lg bg-blue-600 hover:bg-blue-700 transition-colors text-white"
+                                title={isRTL ? 'خيارات أخرى' : 'More Actions'}
                               >
                                 <FaEllipsisV size={12} />
                               </button>
                               
                               {activeActionDropdown === item.id && (
-                                <div className={`absolute ${isRTL ? 'left-0' : 'right-0'} top-full mt-1 w-48  rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 z-50 overflow-hidden`}>
-                                  <div className="py-1 bg-white ">
-                                    {getAvailableActions(item.status).slice(1).map((action, idx) => (
+                                <div className={`absolute ${isRTL ? 'left-0' : 'right-0'} top-full mt-1 w-52 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 z-50 overflow-hidden bg-white dark:bg-gray-800`}>
+                                  <div className="py-1">
+                                    {getMenuActions(item).map((action) => (
                                       <button
-                                        key={idx}
+                                        key={action.type}
+                                        type="button"
+                                        disabled={action.type === 'cancel' && statusUpdatingId === item.id}
                                         onClick={(e) => {
                                           e.stopPropagation()
-                                          handleStatusAction(item, action.type)
+                                          handleMenuAction(item, action.type)
                                           setActiveActionDropdown(null)
                                         }}
-                                        className={`w-full text-start px-4 py-2 text-sm flex items-center gap-2 hover:bg-gray-50 dark:hover:bg-gray-700 ${action.color}`}
+                                        className={`w-full text-start px-4 py-2 text-sm flex items-center gap-2 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-60 ${action.color} ${
+                                          action.type === 'delete' ? 'border-t border-gray-100 dark:border-gray-700' : ''
+                                        }`}
                                       >
                                         <action.icon size={14} />
-                                        {action.label}
+                                        <span className="font-medium">{action.label}</span>
                                       </button>
                                     ))}
-                                    
-                                    {/* Delete Option - Always available? Or constrained? Assuming constrained or generally available for admin */}
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation()
-                                        handleDelete(item.id)
-                                        setActiveActionDropdown(null)
-                                      }}
-                                      className="w-full text-start px-4 py-2 text-sm flex items-center gap-2 hover:bg-red-50 dark:hover:bg-red-900/20 text-red-600"
-                                    >
-                                      <FaTrash size={14} />
-                                      {isRTL ? 'حذف' : 'Delete'}
-                                    </button>
                                   </div>
                                 </div>
                               )}
@@ -1378,7 +1386,7 @@ export default function SalesOrders() {
                        <span dir="ltr">{item.createdAt ? new Date(item.createdAt).toLocaleDateString() : '-'}</span>
                      </div>
                      <div className={`flex justify-between text-sm ${isLight ? 'text-black' : 'text-white'}`}>
-                       <span className="text-[var(--muted-text)]">{isRTL ? 'الإجمالي:' : 'Total:'}</span>
+                       <span className="text-[var(--muted-text)]">{isRTL ? 'إجمالي المبلغ:' : 'Total Amount:'}</span>
                        <span className="font-semibold">{item.total ? item.total.toLocaleString() : '0'}</span>
                      </div>
                       <div className={`flex justify-between text-sm ${isLight ? 'text-black' : 'text-white'}`}>
@@ -1389,41 +1397,63 @@ export default function SalesOrders() {
                   
                   {/* Actions */}
                   <div className="flex items-center justify-end gap-2 pt-3 border-t border-gray-100 dark:border-gray-700">
-                       {/* Primary Action */}
-                          {getAvailableActions(item.status)[0] && (
-                            <button 
-                              disabled={statusUpdatingId === item.id}
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                handleStatusAction(item, getAvailableActions(item.status)[0].type)
-                              }}
-                              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors shadow-sm ${getAvailableActions(item.status)[0].color.replace('text-', 'bg-').replace('600', '100')} ${getAvailableActions(item.status)[0].color} dark:bg-opacity-20 disabled:opacity-60 disabled:cursor-wait`}
-                              title={getAvailableActions(item.status)[0].label}
-                            >
-                              {React.createElement(getAvailableActions(item.status)[0].icon, { size: 12 })}
-                              <span className="hidden xl:inline">{getAvailableActions(item.status)[0].label}</span>
-                            </button>
-                          )}
-                           {/* View Button */}
                           <button 
                             onClick={(e) => {
                               e.stopPropagation()
                               handleView(item)
                             }}
-                            className="p-2 rounded-lg bg-blue-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700 transition-colors shadow-sm"
+                            className="p-2 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 dark:bg-blue-900/20 dark:text-blue-400 transition-colors shadow-sm"
+                            title={isRTL ? 'معاينة' : 'Preview'}
                           >
                             <FaEye size={14} />
                           </button>
-                           {/* Delete - if available */}
+                          <button 
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleEdit(item)
+                            }}
+                            className="p-2 rounded-lg bg-amber-50 text-amber-600 hover:bg-amber-100 dark:bg-amber-900/20 dark:text-amber-400 transition-colors shadow-sm"
+                            title={isRTL ? 'تعديل' : 'Edit'}
+                          >
+                            <FaEdit size={14} />
+                          </button>
+                          {canCreateInvoiceForOrder(item) && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleCreateInvoice(item, 'Full')
+                              }}
+                              className="p-2 rounded-lg bg-green-50 text-green-600 hover:bg-green-100 dark:bg-green-900/20 dark:text-green-400 transition-colors shadow-sm"
+                              title={isRTL ? 'إنشاء فاتورة' : 'Create Invoice'}
+                            >
+                              <FaFileInvoiceDollar size={14} />
+                            </button>
+                          )}
+                          {canCancelOrder(item) && (
+                            <button
+                              disabled={statusUpdatingId === item.id}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleStatusAction(item, 'cancel')
+                              }}
+                              className="p-2 rounded-lg bg-orange-50 text-orange-600 hover:bg-orange-100 dark:bg-orange-900/20 dark:text-orange-400 transition-colors shadow-sm disabled:opacity-60"
+                              title={isRTL ? 'إلغاء الطلب' : 'Cancel Order'}
+                            >
+                              <FaBan size={14} />
+                            </button>
+                          )}
+                          {canDeleteOrder && (
                             <button
                               onClick={(e) => {
                                 e.stopPropagation()
                                 handleDelete(item.id)
                               }}
                               className="p-2 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-900/20 dark:text-red-400 transition-colors shadow-sm"
+                              title={isRTL ? 'حذف' : 'Delete'}
                             >
                               <FaTrash size={14} />
                             </button>
+                          )}
                   </div>
                 </div>
               ))
@@ -1601,6 +1631,7 @@ export default function SalesOrders() {
             setPreviewOrder(null)
           }}
           order={previewOrder}
+          customers={customersList}
           isRTL={isRTL}
           onCreateInvoice={(type) => handleCreateInvoice(previewOrder, type)}
         />

@@ -15,6 +15,7 @@ import CustomerDetailsModal from '../components/CustomerDetailsModal'
 import DateRangePicker from '../shared/components/DateRangePicker'
 import { canExportReport } from '../shared/utils/reportPermissions'
 import { getSourceDisplayName, mapSourceToOption } from '../shared/utils/sourceDisplay'
+import { buildCustomerAddress } from '../shared/utils/customerAddress'
 import { isRealEstateCompanyType, resolveTenantCompanyTypeSources } from '../shared/utils/tenantCompanyType'
 
 function unwrapList(payload) {
@@ -83,6 +84,9 @@ export default function CustomersReport() {
   const isRealEstate = isRealEstateCompanyType(...resolveTenantCompanyTypeSources(company, crmSettings))
 
   const [customers, setCustomers] = useState([])
+  const [quotationTotals, setQuotationTotals] = useState(null)
+  const [orderTotals, setOrderTotals] = useState(null)
+  const [invoiceTotals, setInvoiceTotals] = useState(null)
   const [salesperson, setSalesperson] = useState('all')
   const [manager, setManager] = useState('all')
   const [source, setSource] = useState('all')
@@ -177,6 +181,9 @@ export default function CustomersReport() {
             project: c.project || '',
             phone: c.phone || '',
             email: c.email || '',
+            address: buildCustomerAddress(c) || c.address || c.addressLine || '',
+            country: c.country || '',
+            city: c.city || '',
             joinedDate: c.joinedDate || c.created_at || '',
             billedTotal,
             collectedTotal,
@@ -195,20 +202,52 @@ export default function CustomersReport() {
             invoicesCount: Number(c.invoicesCount ?? 0),
             opportunitiesCount: Number(c.opportunitiesCount ?? 0),
             quotationTotal: Number(c.quotationTotal ?? 0),
-            quotationConverted: Number(c.quotationConverted ?? 0),
-            quotationPending: Number(c.quotationPending ?? 0),
-            quotationLost: Number(c.quotationLost ?? 0),
+            quotationDraft: Number(c.quotationDraft ?? 0),
+            quotationSent: Number(c.quotationSent ?? c.quotationPending ?? 0),
+            quotationApproved: Number(c.quotationApproved ?? c.quotationConverted ?? 0),
+            quotationRejected: Number(c.quotationRejected ?? c.quotationLost ?? 0),
             revenueBreakdown: c.revenueBreakdown && typeof c.revenueBreakdown === 'object' ? c.revenueBreakdown : {},
           }
         })
 
         if (!cancelled) {
           setCustomers(normalized)
+          const totals = payload?.quotation_totals || payload?.quotationTotals || null
+          setQuotationTotals(totals && typeof totals === 'object' ? {
+            total: Number(totals.total ?? totals.quotationTotal ?? 0),
+            draft: Number(totals.draft ?? totals.quotationDraft ?? 0),
+            sent: Number(totals.sent ?? totals.quotationSent ?? 0),
+            approved: Number(totals.approved ?? totals.quotationApproved ?? 0),
+            rejected: Number(totals.rejected ?? totals.quotationRejected ?? 0),
+            orphanTotal: Number(totals.orphan_total ?? totals.orphanTotal ?? 0),
+          } : null)
+          const orderTotalsPayload = payload?.order_totals || payload?.orderTotals || null
+          setOrderTotals(orderTotalsPayload && typeof orderTotalsPayload === 'object' ? {
+            total: Number(orderTotalsPayload.total ?? orderTotalsPayload.ordersTotal ?? 0),
+            open: Number(orderTotalsPayload.open ?? orderTotalsPayload.openTotal ?? 0),
+            draft: Number(orderTotalsPayload.draft ?? 0),
+            cancelled: Number(orderTotalsPayload.cancelled ?? orderTotalsPayload.canceled ?? 0),
+            orphanTotal: Number(orderTotalsPayload.orphan_total ?? orderTotalsPayload.orphanTotal ?? 0),
+          } : null)
+          const invoiceTotalsPayload = payload?.invoice_totals || payload?.invoiceTotals || null
+          setInvoiceTotals(invoiceTotalsPayload && typeof invoiceTotalsPayload === 'object' ? {
+            total: Number(invoiceTotalsPayload.total ?? 0),
+            posted: Number(invoiceTotalsPayload.posted ?? 0),
+            billed: Number(invoiceTotalsPayload.billed ?? 0),
+            collected: Number(invoiceTotalsPayload.collected ?? 0),
+            paidTotal: Number(invoiceTotalsPayload.paid_total ?? invoiceTotalsPayload.paidTotal ?? 0),
+            partialTotal: Number(invoiceTotalsPayload.partial_total ?? invoiceTotalsPayload.partialTotal ?? 0),
+            unpaidTotal: Number(invoiceTotalsPayload.unpaid_total ?? invoiceTotalsPayload.unpaidTotal ?? 0),
+            orphanTotal: Number(invoiceTotalsPayload.orphan_total ?? invoiceTotalsPayload.orphanTotal ?? 0),
+          } : null)
         }
       } catch (error) {
         console.error('Failed to load customers report data', error)
         if (!cancelled) {
           setCustomers([])
+          setQuotationTotals(null)
+          setOrderTotals(null)
+          setInvoiceTotals(null)
         }
       }
     }
@@ -299,37 +338,72 @@ export default function CustomersReport() {
   }
 
   const totalCustomers = filtered.length
-  const totalBilled = filtered.reduce((s, c) => s + (c.billedTotal || 0), 0)
-  const totalCollected = filtered.reduce((s, c) => s + (c.collectedTotal || 0), 0)
-  const totalSalesOrders = filtered.reduce((s, c) => s + (c.orders || 0), 0)
-  const totalQuotations = filtered.reduce((s, c) => s + (c.quotationTotal || 0), 0)
-  const totalInvoices = filtered.reduce((s, c) => s + (c.invoicesCount || 0), 0)
+  // Prefer server scope totals (same visibility as Sales Invoices page) so orphan /
+  // unmatched invoices are not dropped when summing per-customer rows only.
+  const totalBilled = invoiceTotals && Number.isFinite(invoiceTotals.billed)
+    ? invoiceTotals.billed
+    : filtered.reduce((s, c) => s + (c.billedTotal || 0), 0)
+  const totalCollected = invoiceTotals && Number.isFinite(invoiceTotals.collected)
+    ? invoiceTotals.collected
+    : filtered.reduce((s, c) => s + (c.collectedTotal || 0), 0)
+  // Prefer server scope total (same visibility as Sales Orders page) so orphan /
+  // unmatched orders are not dropped when summing per-customer open-order rows only.
+  const totalSalesOrders = orderTotals && Number.isFinite(orderTotals.total)
+    ? orderTotals.total
+    : filtered.reduce((s, c) => s + (c.orders || 0), 0)
+  // Prefer server scope total (same visibility as Sales Quotations page) so orphan /
+  // unmatched quotes are not dropped when summing per-customer rows only.
+  const totalQuotations = quotationTotals && Number.isFinite(quotationTotals.total)
+    ? quotationTotals.total
+    : filtered.reduce((s, c) => s + (c.quotationTotal || 0), 0)
+  const totalInvoices = invoiceTotals && Number.isFinite(invoiceTotals.total)
+    ? invoiceTotals.total
+    : filtered.reduce((s, c) => s + (c.invoicesCount || 0), 0)
 
   const quotationsSegments = useMemo(() => {
-    const converted = filtered.reduce((s, c) => s + (c.quotationConverted || 0), 0)
-    const pending = filtered.reduce((s, c) => s + (c.quotationPending || 0), 0)
-    const lost = filtered.reduce((s, c) => s + (c.quotationLost || 0), 0)
-    const total = converted + pending + lost
+    const draft = quotationTotals && Number.isFinite(quotationTotals.draft)
+      ? quotationTotals.draft
+      : filtered.reduce((s, c) => s + (c.quotationDraft || 0), 0)
+    const sent = quotationTotals && Number.isFinite(quotationTotals.sent)
+      ? quotationTotals.sent
+      : filtered.reduce((s, c) => s + (c.quotationSent || 0), 0)
+    const approved = quotationTotals && Number.isFinite(quotationTotals.approved)
+      ? quotationTotals.approved
+      : filtered.reduce((s, c) => s + (c.quotationApproved || 0), 0)
+    const rejected = quotationTotals && Number.isFinite(quotationTotals.rejected)
+      ? quotationTotals.rejected
+      : filtered.reduce((s, c) => s + (c.quotationRejected || 0), 0)
+    const total = draft + sent + approved + rejected
 
+    // Same green bucket as Quotations page: status Converted (and Approved/Accepted)
+    // are counted together — label as Converted to match the list UI.
     if (!total) {
       return [
-        { label: isRTL ? 'محول' : 'Converted', value: 0, color: '#22c55e', pct: 0 },
-        { label: isRTL ? 'قيد الانتظار' : 'Pending', value: 0, color: '#facc15', pct: 0 },
-        { label: isRTL ? 'مفقود / ملغى' : 'Lost / Cancelled', value: 0, color: '#ef4444', pct: 0 },
+        { label: isRTL ? 'مسودة' : 'Draft', value: 0, color: '#94a3b8', pct: 0 },
+        { label: isRTL ? 'تم الإرسال' : 'Sent', value: 0, color: '#3b82f6', pct: 0 },
+        { label: isRTL ? 'محوّل' : 'Converted', value: 0, color: '#22c55e', pct: 0 },
+        { label: isRTL ? 'مرفوض' : 'Rejected', value: 0, color: '#ef4444', pct: 0 },
       ]
     }
 
     return [
-      { label: isRTL ? 'محول' : 'Converted', value: converted, color: '#22c55e', pct: Math.round((converted / total) * 100) },
-      { label: isRTL ? 'قيد الانتظار' : 'Pending', value: pending, color: '#facc15', pct: Math.round((pending / total) * 100) },
-      { label: isRTL ? 'مفقود / ملغى' : 'Lost / Cancelled', value: lost, color: '#ef4444', pct: Math.round((lost / total) * 100) },
+      { label: isRTL ? 'مسودة' : 'Draft', value: draft, color: '#94a3b8', pct: Math.round((draft / total) * 100) },
+      { label: isRTL ? 'تم الإرسال' : 'Sent', value: sent, color: '#3b82f6', pct: Math.round((sent / total) * 100) },
+      { label: isRTL ? 'محوّل' : 'Converted', value: approved, color: '#22c55e', pct: Math.round((approved / total) * 100) },
+      { label: isRTL ? 'مرفوض' : 'Rejected', value: rejected, color: '#ef4444', pct: Math.round((rejected / total) * 100) },
     ]
-  }, [filtered, isRTL])
+  }, [filtered, isRTL, quotationTotals])
 
   const invoicesSegments = useMemo(() => {
-    const paid = filtered.reduce((s, c) => s + (c.invoicePaidTotal || 0), 0)
-    const partial = filtered.reduce((s, c) => s + (c.invoicePartialTotal || 0), 0)
-    const unpaid = filtered.reduce((s, c) => s + (c.invoiceUnpaidTotal || 0), 0)
+    const paid = invoiceTotals && Number.isFinite(invoiceTotals.paidTotal)
+      ? invoiceTotals.paidTotal
+      : filtered.reduce((s, c) => s + (c.invoicePaidTotal || 0), 0)
+    const partial = invoiceTotals && Number.isFinite(invoiceTotals.partialTotal)
+      ? invoiceTotals.partialTotal
+      : filtered.reduce((s, c) => s + (c.invoicePartialTotal || 0), 0)
+    const unpaid = invoiceTotals && Number.isFinite(invoiceTotals.unpaidTotal)
+      ? invoiceTotals.unpaidTotal
+      : filtered.reduce((s, c) => s + (c.invoiceUnpaidTotal || 0), 0)
     const total = paid + partial + unpaid
 
     if (!total) {
@@ -345,7 +419,7 @@ export default function CustomersReport() {
       { label: isRTL ? 'مدفوع جزئياً' : 'Partially Paid', value: partial, color: '#0ea5e9', pct: Math.round((partial / total) * 100) },
       { label: isRTL ? 'غير مدفوع' : 'Unpaid', value: unpaid, color: '#ef4444', pct: Math.round((unpaid / total) * 100) },
     ]
-  }, [filtered, isRTL])
+  }, [filtered, isRTL, invoiceTotals])
 
   const revenueSegments = useMemo(() => {
     const total = totalBilled || 0
@@ -434,6 +508,8 @@ export default function CustomersReport() {
     const rows = filtered.map(c => ({
       [isRTL ? 'الاسم' : 'Name']: c.name,
       [isRTL ? 'النوع' : 'Type']: translateClientType(c.clientType || c.type, isRTL),
+      [isRTL ? 'المصدر' : 'Source']: getSourceDisplayName(c.source, isRTL) || c.source || '',
+      [isRTL ? 'العنوان' : 'Address']: c.address || '',
       [isRTL ? 'الهاتف' : 'Phone']: c.phone,
       [isRTL ? 'تاريخ الانضمام' : 'Joined']: c.joinedDate,
       [`${isRTL ? 'المفوتر' : 'Billed'} (${currencyCode})`]: c.billedTotal,
@@ -467,6 +543,8 @@ export default function CustomersReport() {
       const tableColumn = [
         isRTL ? 'اسم العميل' : 'Customer Name',
         isRTL ? 'النوع' : 'Type',
+        isRTL ? 'المصدر' : 'Source',
+        isRTL ? 'العنوان' : 'Address',
         isRTL ? 'الهاتف' : 'Phone',
         `${isRTL ? 'المفوتر' : 'Billed'} (${currencyCode})`,
         `${isRTL ? 'التحصيل' : 'Collected'} (${currencyCode})`,
@@ -482,6 +560,8 @@ export default function CustomersReport() {
         const rowData = [
           c.name,
           translateClientType(c.clientType || c.type, isRTL),
+          getSourceDisplayName(c.source, isRTL) || c.source || '—',
+          c.address || '—',
           c.phone || '—',
           Number(c.billedTotal || 0).toLocaleString(),
           Number(c.collectedTotal || 0).toLocaleString(),
@@ -893,6 +973,14 @@ export default function CustomersReport() {
                     <span className="text-xs">{isRTL ? 'الهاتف' : 'Phone'}:</span>
                     <span className="font-medium" dir="ltr">{c.phone || '—'}</span>
                   </div>
+                  <div className={`flex items-center gap-2 ${isLight ? 'text-black' : 'text-white'}`}>
+                    <span className="text-xs">{isRTL ? 'المصدر' : 'Source'}:</span>
+                    <span className="font-medium">{getSourceDisplayName(c.source, isRTL) || c.source || '—'}</span>
+                  </div>
+                  <div className={`flex items-start gap-2 ${isLight ? 'text-black' : 'text-white'}`}>
+                    <span className="text-xs shrink-0">{isRTL ? 'العنوان' : 'Address'}:</span>
+                    <span className="font-medium break-words">{c.address || '—'}</span>
+                  </div>
 
                   <div className="grid grid-cols-2 gap-3 mt-1">
                     <div className="flex flex-col">
@@ -932,11 +1020,13 @@ export default function CustomersReport() {
 
           {/* Desktop View - Table */}
           <div className="hidden md:block overflow-x-auto">
-          <table className={`w-full min-w-[960px] text-sm text-left ${isLight ? 'text-black' : 'text-white'}`}>
+          <table className={`w-full min-w-[1100px] text-sm text-left ${isLight ? 'text-black' : 'text-white'}`}>
             <thead className={`text-xs uppercase bg-white/5 dark:bg-white/5 border-b border-black/10 dark:border-white/15 ${isLight ? 'text-black' : 'text-white'}`}>
               <tr>
                 <th className="px-4 py-3 text-start whitespace-nowrap min-w-[160px]">{isRTL ? 'اسم العميل' : 'Customer Name'}</th>
                 <th className="px-4 py-3 text-start whitespace-nowrap">{isRTL ? 'النوع' : 'Type'}</th>
+                <th className="px-4 py-3 text-start whitespace-nowrap min-w-[120px]">{isRTL ? 'المصدر' : 'Source'}</th>
+                <th className="px-4 py-3 text-start whitespace-nowrap min-w-[160px]">{isRTL ? 'العنوان' : 'Address'}</th>
                 <th className="px-4 py-3 text-start whitespace-nowrap min-w-[120px]">{isRTL ? 'الهاتف' : 'Phone'}</th>
                 <th className="px-4 py-3 text-end whitespace-nowrap min-w-[120px]">{isRTL ? 'المفوتر' : 'Billed'}</th>
                 <th className="px-4 py-3 text-end whitespace-nowrap min-w-[120px]">{isRTL ? 'التحصيل' : 'Collected'}</th>
@@ -950,13 +1040,13 @@ export default function CustomersReport() {
             <tbody className="divide-y divide-white/10 dark:divide-gray-700/50">
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={10} className="px-3 py-6 text-center text-[var(--muted-text)]">{isRTL ? 'لا توجد بيانات' : 'No data'}</td>
+                  <td colSpan={12} className="px-3 py-6 text-center text-[var(--muted-text)]">{isRTL ? 'لا توجد بيانات' : 'No data'}</td>
                 </tr>
               )}
               {filtered.length > 0 && paginatedRows.length === 0 && (
                 <tr>
                   <td
-                    colSpan={10}
+                    colSpan={12}
                     className="px-3 py-6 text-center text-[var(--muted-text)]"
                   >
                     {isRTL ? 'لا توجد نتائج' : 'No results'}
@@ -975,6 +1065,8 @@ export default function CustomersReport() {
                     </button>
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap">{translateClientType(c.clientType || c.type, isRTL)}</td>
+                  <td className="px-4 py-3 whitespace-nowrap">{getSourceDisplayName(c.source, isRTL) || c.source || '—'}</td>
+                  <td className="px-4 py-3 max-w-[220px] truncate" title={c.address || ''}>{c.address || '—'}</td>
                   <td className="px-4 py-3 whitespace-nowrap" dir="ltr">{c.phone || '—'}</td>
                   <td className="px-4 py-3 text-end tabular-nums whitespace-nowrap">{formatMoney(c.billedTotal)}</td>
                   <td className="px-4 py-3 text-end tabular-nums whitespace-nowrap">{formatMoney(c.collectedTotal)}</td>

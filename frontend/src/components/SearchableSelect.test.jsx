@@ -66,3 +66,93 @@ describe('SearchableSelect creatable', () => {
     expect(onChange).toHaveBeenCalledWith('Consulting')
   })
 })
+
+describe('SearchableSelect outside click', () => {
+  test('closes when clicking outside even if a parent stops mousedown propagation', () => {
+    const onChange = jest.fn()
+    render(
+      <div
+        onMouseDown={(e) => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <SearchableSelect
+          options={[
+            { value: 'a', label: 'Item A' },
+            { value: 'b', label: 'Item B' },
+          ]}
+          value=""
+          onChange={onChange}
+          placeholder="Select Item"
+          showAllOption={false}
+        />
+        <button type="button">Outside field</button>
+      </div>
+    )
+
+    fireEvent.click(screen.getByText('Select Item'))
+    expect(screen.getByPlaceholderText('Search...')).toBeInTheDocument()
+
+    fireEvent.mouseDown(screen.getByText('Outside field'))
+    expect(screen.queryByPlaceholderText('Search...')).not.toBeInTheDocument()
+  })
+
+  test('opens on trigger click even when a parent stops mousedown propagation', () => {
+    const onChange = jest.fn()
+    render(
+      <div
+        onMouseDown={(e) => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <SearchableSelect
+          options={[
+            { value: 'a', label: 'Item A' },
+            { value: 'b', label: 'Item B' },
+          ]}
+          value=""
+          onChange={onChange}
+          placeholder="Select Item"
+          showAllOption={false}
+        />
+      </div>
+    )
+
+    fireEvent.click(screen.getByText('Select Item'))
+    expect(screen.getByPlaceholderText('Search...')).toBeInTheDocument()
+  })
+
+  test('closes on Escape', () => {
+    const onChange = jest.fn()
+    render(
+      <SearchableSelect
+        options={[{ value: 'a', label: 'Item A' }]}
+        value=""
+        onChange={onChange}
+        placeholder="Select Item"
+        showAllOption={false}
+      />
+    )
+
+    fireEvent.click(screen.getByText('Select Item'))
+    expect(screen.getByPlaceholderText('Search...')).toBeInTheDocument()
+
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.queryByPlaceholderText('Search...')).not.toBeInTheDocument()
+  })
+
+  test('does not open when disabled', () => {
+    const onChange = jest.fn()
+    render(
+      <SearchableSelect
+        options={[{ value: 'a', label: 'Item A' }]}
+        value=""
+        onChange={onChange}
+        placeholder="Select Item"
+        showAllOption={false}
+        disabled
+      />
+    )
+
+    fireEvent.click(screen.getByText('Select Item'))
+    expect(screen.queryByPlaceholderText('Search...')).not.toBeInTheDocument()
+  })
+})

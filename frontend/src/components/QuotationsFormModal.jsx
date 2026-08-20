@@ -1,11 +1,113 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Fragment } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useTheme } from '../shared/context/ThemeProvider'
 import { api } from '../utils/api'
 import { FaFileInvoiceDollar, FaTimes, FaHashtag, FaUser, FaCalendarAlt, FaPlus, FaTrash, FaStickyNote, FaPaperclip, FaSave } from 'react-icons/fa'
 import SearchableSelect from './SearchableSelect'
+import {
+  CATEGORY_TYPE_PRODUCTS,
+  CATEGORY_TYPE_SERVICES,
+  normalizeCategoryType,
+} from '../features/inventory/categoryType'
+import {
+  applyCatalogSelectionToLine,
+  extractItemsCollection,
+  findCatalogProduct,
+  emptySalesLineAddons,
+  findCatalogMatchForLine,
+  formatServiceBillingLabel,
+  getLineIdentityMeta,
+  getSalesLineLabels,
+  isServiceSalesLine,
+  mapCatalogItem,
+  resetLineForCategoryChange,
+  resetLineForTypeChange,
+  resolveAvailableAddonsForLine,
+  resolveCategoryName,
+  resolveLineItemType,
+} from '../features/inventory/salesLineCatalog'
+import SalesLineAddonsPicker from '../features/inventory/SalesLineAddonsPicker'
 
 const DEFAULT_TAX_RATE = 14
+
+/** Coerce API/meta flags — Boolean("0")/Boolean("false") are wrongly true. */
+const coerceTaxEnabled = (value, fallback = false) => {
+  if (value === undefined || value === null || value === '') return fallback
+  if (typeof value === 'boolean') return value
+  if (typeof value === 'number') return value !== 0 && Number.isFinite(value)
+  const s = String(value).trim().toLowerCase()
+  if (['1', 'true', 'yes', 'on'].includes(s)) return true
+  if (['0', 'false', 'no', 'off'].includes(s)) return false
+  return fallback
+}
+
+const resolveActiveTaxRate = (taxRate) => {
+  if (taxRate === undefined || taxRate === null || taxRate === '') return DEFAULT_TAX_RATE
+  const n = Number(taxRate)
+  return Number.isFinite(n) ? Math.max(0, n) : DEFAULT_TAX_RATE
+}
+
+export const getQuotationLineAddonsTotal = (item) => {
+  if (Array.isArray(item?.addons) && item.addons.length > 0) {
+    const isService = isServiceSalesLine(item)
+    return item.addons.reduce((sum, addon) => {
+      const explicit = Number(addon?.total)
+      if (Number.isFinite(explicit)) return sum + Math.max(0, explicit)
+      const price = Number(addon?.price ?? addon?.amount ?? 0) || 0
+      if (isService) return sum + price
+      const qty = Number(addon?.quantity ?? 0) || 0
+      return sum + (qty * price)
+    }, 0)
+  }
+  if (item?.addons_total != null && item.addons_total !== '') {
+    const stored = Number(item.addons_total)
+    if (Number.isFinite(stored)) return Math.max(0, stored)
+  }
+  return 0
+}
+
+export const getQuotationLineDiscountAmount = (item) => {
+  const quantity = Number(item?.quantity ?? item?.qty ?? 0) || 0
+  const price = Number(item?.price ?? item?.unit_price ?? item?.unitPrice ?? 0) || 0
+  const raw = Number(item?.discount ?? 0) || 0
+  const lineGross = (quantity * price) + getQuotationLineAddonsTotal(item)
+  const type = String(item?.discountType ?? item?.discount_type ?? 'value').toLowerCase()
+  if (type === 'percent' || type === 'percentage' || type === '%') {
+    const pct = Math.max(0, Math.min(100, raw))
+    return Math.min(lineGross, (lineGross * pct) / 100)
+  }
+  return Math.min(lineGross, Math.max(0, raw))
+}
+
+export const getQuotationLineTotal = (item) => {
+  const quantity = Number(item?.quantity ?? item?.qty ?? 0) || 0
+  const price = Number(item?.price ?? item?.unit_price ?? item?.unitPrice ?? 0) || 0
+  return (quantity * price) + getQuotationLineAddonsTotal(item) - getQuotationLineDiscountAmount(item)
+}
+
+const normalizeQuotationItems = (items = []) => (
+  (Array.isArray(items) ? items : []).map((item) => {
+    const discountType = String(item?.discountType ?? item?.discount_type ?? 'value').toLowerCase() === 'percent'
+      ? 'percent'
+      : 'value'
+    const addons = Array.isArray(item?.addons) ? item.addons : []
+    const addon_ids = Array.isArray(item?.addon_ids)
+      ? item.addon_ids
+      : addons.map((addon) => addon?.id ?? addon?.addon_id).filter((id) => id != null && id !== '')
+    const withAddons = {
+      ...item,
+      discountType,
+      discount: Number(item?.discount ?? 0) || 0,
+      addon_ids,
+      addons,
+      addons_total: getQuotationLineAddonsTotal({ ...item, addon_ids, addons }),
+    }
+    return {
+      ...withAddons,
+      discountAmount: getQuotationLineDiscountAmount(withAddons),
+    }
+  })
+)
 
 const resolveQuotationTaxRate = (data) => {
   const stored = Number(data?.taxRate ?? data?.tax_rate ?? data?.meta_data?.tax_rate)
@@ -51,14 +153,15 @@ const QuotationsFormModal = ({ isOpen, onClose, onSave, initialData = null, isRT
       try {
         setLoadingData(true)
         const [customersRes, productsRes, usersRes, categoriesRes] = await Promise.all([
-          api.get('/api/customers'),
-          api.get('/api/items'),
-          api.get('/api/users'),
-          api.get('/api/item-categories')
+          api.get('/api/customers', { params: { all: 1 } }),
+          api.get('/api/items', { params: { all: 1 } }),
+          api.get('/api/users', { params: { all: 1 } }),
+          api.get('/api/item-categories', { params: { all: 1 } })
         ])
 
-        if (customersRes.data?.data) {
-          const mappedCustomers = customersRes.data.data.map(c => ({
+        const customersData = customersRes.data?.data || customersRes.data || []
+        if (Array.isArray(customersData)) {
+          const mappedCustomers = customersData.map(c => ({
             ...c,
             code: c.customer_code,
             name: c.name || c.customer_name || c.company_name || (isRTL ? 'بدون اسم' : 'No Name'),
@@ -67,21 +170,19 @@ const QuotationsFormModal = ({ isOpen, onClose, onSave, initialData = null, isRT
           setCustomers(mappedCustomers)
         }
 
-        if (productsRes.data?.data) {
-          const mappedProducts = productsRes.data.data.map(item => ({
-             id: item.id,
-             name: item.name,
-             price: item.price || 0,
-             type: 'Product',
-             category: item.category
-          }))
-          setProducts(mappedProducts)
-        }
+        const productsData = extractItemsCollection(productsRes.data)
+        setProducts(productsData.map(mapCatalogItem).filter((item) => item.name))
         
-        if (categoriesRes.data) {
-            const cats = Array.isArray(categoriesRes.data) ? categoriesRes.data : (categoriesRes.data.data || []);
-            setCategories(cats.map(c => ({ value: c.name, label: c.name })));
-        }
+        const cats = Array.isArray(categoriesRes.data)
+          ? categoriesRes.data
+          : (categoriesRes.data?.data || [])
+        setCategories(
+          (Array.isArray(cats) ? cats : []).map((c) => ({
+            value: c.name,
+            label: c.name,
+            categoryType: normalizeCategoryType(c.applies_to || c.category_type || c.type) || CATEGORY_TYPE_PRODUCTS,
+          })).filter((c) => c.value)
+        )
 
         const rawUsers = Array.isArray(usersRes.data) ? usersRes.data : (usersRes.data?.data || [])
         const filteredSales = rawUsers.filter(u => {
@@ -118,15 +219,20 @@ const QuotationsFormModal = ({ isOpen, onClose, onSave, initialData = null, isRT
         status: initialData.status || 'Draft',
         date: initialData.createdAt ? new Date(initialData.createdAt).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
         expiryDate: initialData.expiryDate ? new Date(initialData.expiryDate).toISOString().split('T')[0] : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-        items: initialData.items || [],
+        items: normalizeQuotationItems((initialData.items || []).map((item) => ({
+          ...item,
+          type: resolveLineItemType(item.type),
+          category: resolveCategoryName(item) || String(item.category || '').trim(),
+        }))),
         tax: Number(initialData.tax || 0),
         taxRate: resolveQuotationTaxRate(initialData),
         notes: initialData.notes || '',
         attachment: initialData.attachment || null,
         salesPerson: initialData.salesPerson || '',
-        isTaxEnabled: initialData.isTaxEnabled
-          ?? initialData.meta_data?.is_tax_enabled
-          ?? (Array.isArray(initialData.items) ? Number(initialData.tax || 0) > 0 : true)
+        isTaxEnabled: coerceTaxEnabled(
+          initialData.isTaxEnabled ?? initialData.meta_data?.is_tax_enabled,
+          Array.isArray(initialData.items) ? Number(initialData.tax || 0) > 0 : true
+        )
       })
     } else {
       setFormData({
@@ -160,12 +266,7 @@ const QuotationsFormModal = ({ isOpen, onClose, onSave, initialData = null, isRT
 
   // Calculations
   const calculateSubtotal = () => {
-    return formData.items.reduce((sum, item) => {
-      const qty = parseFloat(item.quantity) || 0
-      const price = parseFloat(item.price) || 0
-      const discount = parseFloat(item.discount) || 0
-      return sum + (qty * price) - discount
-    }, 0)
+    return formData.items.reduce((sum, item) => sum + getQuotationLineTotal(item), 0)
   }
 
   const subtotal = calculateSubtotal()
@@ -173,11 +274,17 @@ const QuotationsFormModal = ({ isOpen, onClose, onSave, initialData = null, isRT
   // Auto-calculate tax effect
   useEffect(() => {
     if (formData.isTaxEnabled) {
-      const rate = Math.max(0, Number(formData.taxRate) || 0)
+      const rate = resolveActiveTaxRate(formData.taxRate)
       const calculatedTax = subtotal * (rate / 100)
-      if (Math.abs(formData.tax - calculatedTax) > 0.01) {
-        setFormData(prev => ({ ...prev, tax: calculatedTax }))
-      }
+      setFormData(prev => {
+        const needsRateFix = prev.taxRate === undefined || prev.taxRate === null || prev.taxRate === ''
+        if (Math.abs(Number(prev.tax) - calculatedTax) <= 0.01 && !needsRateFix) return prev
+        return {
+          ...prev,
+          tax: calculatedTax,
+          ...(needsRateFix ? { taxRate: resolveActiveTaxRate(prev.taxRate) } : {}),
+        }
+      })
     } else if (Number(formData.tax) !== 0) {
       setFormData(prev => ({ ...prev, tax: 0 }))
     }
@@ -198,7 +305,11 @@ const QuotationsFormModal = ({ isOpen, onClose, onSave, initialData = null, isRT
     formData.items.forEach((item, index) => {
       if (!item.name) newErrors[`item_name_${index}`] = true
       if (!item.quantity || item.quantity <= 0) newErrors[`item_qty_${index}`] = true
-      if (!item.price || item.price < 0) newErrors[`item_price_${index}`] = true
+      if (item.price === undefined || item.price === null || item.price < 0) newErrors[`item_price_${index}`] = true
+      const discountType = item.discountType || 'value'
+      const discount = Number(item.discount) || 0
+      if (discount < 0) newErrors[`item_discount_${index}`] = true
+      if (discountType === 'percent' && discount > 100) newErrors[`item_discount_${index}`] = true
     })
 
     if (Object.keys(newErrors).length > 0) {
@@ -217,7 +328,7 @@ const QuotationsFormModal = ({ isOpen, onClose, onSave, initialData = null, isRT
   const handleSubmit = (e) => {
     e.preventDefault()
     if (validate()) {
-      onSave({ ...formData, subtotal, total })
+      onSave({ ...formData, items: normalizeQuotationItems(formData.items), subtotal, total })
     }
   }
 
@@ -227,7 +338,17 @@ const QuotationsFormModal = ({ isOpen, onClose, onSave, initialData = null, isRT
       ...prev,
       items: [
         ...prev.items,
-        { id: Date.now(), type: 'Product', category: '', name: '', quantity: 1, price: 0, discount: 0 }
+        {
+          id: Date.now(),
+          type: 'Product',
+          category: '',
+          name: '',
+          quantity: 1,
+          price: 0,
+          discount: 0,
+          discountType: 'value',
+          ...emptySalesLineAddons(),
+        }
       ]
     }))
   }
@@ -246,17 +367,85 @@ const QuotationsFormModal = ({ isOpen, onClose, onSave, initialData = null, isRT
     }))
   }
 
-  // Options
+  const handleLineAddonsChange = (index, nextLine) => {
+    setFormData((prev) => ({
+      ...prev,
+      items: prev.items.map((item, i) => (i === index ? nextLine : item)),
+    }))
+  }
+
+  // Category / item cascading helpers (must stay in sync with Type → Category → Item Name)
   const itemTypeOptions = [
     { value: 'Product', label: isRTL ? 'منتج' : 'Product' },
     { value: 'Service', label: isRTL ? 'خدمة' : 'Service' }
   ]
 
-  const categoryOptions = categories.length > 0 ? categories : [
-    { value: 'Electronics', label: isRTL ? 'إلكترونيات' : 'Electronics' },
-    { value: 'Software', label: isRTL ? 'برمجيات' : 'Software' },
-    { value: 'Consulting', label: isRTL ? 'استشارات' : 'Consulting' }
-  ]
+  const getCategoryOptionsForLine = (line) => {
+    const wanted = resolveLineItemType(line?.type) === 'Service'
+      ? CATEGORY_TYPE_SERVICES
+      : CATEGORY_TYPE_PRODUCTS
+    const filtered = (categories || []).filter((c) => !c.categoryType || c.categoryType === wanted)
+    const options = filtered.length ? filtered : (categories || [])
+    const current = String(line?.category || '').trim()
+    if (current && !options.some((opt) => opt.value === current)) {
+      return [...options, { value: current, label: current, categoryType: wanted }]
+    }
+    return options
+  }
+
+  const getProductOptionsForLine = (line) => {
+    const lineType = resolveLineItemType(line?.type)
+    const lineCategory = String(line?.category || '').trim()
+    return (products || []).filter((product) => {
+      if (product.type && product.type !== lineType) return false
+      if (lineCategory && product.category !== lineCategory) return false
+      return Boolean(product.name)
+    })
+  }
+
+  const handleLineTypeChange = (index, newType) => {
+    setFormData((prev) => ({
+      ...prev,
+      items: prev.items.map((it, i) => (
+        i === index ? resetLineForTypeChange(it, newType) : it
+      )),
+    }))
+  }
+
+  const handleLineCategoryChange = (index, newCategory) => {
+    setFormData((prev) => ({
+      ...prev,
+      items: prev.items.map((it, i) => (
+        i === index ? resetLineForCategoryChange(it, newCategory) : it
+      )),
+    }))
+  }
+
+  const handleLineItemSelect = (index, selectedIdOrName) => {
+    setFormData((prev) => {
+      const current = prev.items[index] || {}
+      const product = findCatalogProduct(products, {
+        id: selectedIdOrName,
+        name: selectedIdOrName,
+        type: current.type,
+        category: current.category,
+      }) || findCatalogProduct(getProductOptionsForLine(current), {
+        id: selectedIdOrName,
+        name: selectedIdOrName,
+        type: current.type,
+        category: current.category,
+      })
+      const selectedName = product?.name || String(selectedIdOrName || '')
+      return {
+        ...prev,
+        items: prev.items.map((it, i) => (
+          i === index ? applyCatalogSelectionToLine(it, product, selectedName) : it
+        )),
+      }
+    })
+  }
+
+  const lineLabels = getSalesLineLabels(isRTL)
 
   const inputClass = `w-full px-4 py-2 rounded-lg border focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all ${
     isDark 
@@ -264,14 +453,18 @@ const QuotationsFormModal = ({ isOpen, onClose, onSave, initialData = null, isRT
       : 'bg-white border-gray-300 text-theme-text placeholder-gray-400'
   }`
 
-  const labelClass = `block text-sm font-medium mb-1 text-theme-text`
+  const labelClass = `block text-sm font-medium mb-1.5 text-theme-text`
   const errorClass = "text-xs text-red-500 mt-1"
 
   return (
-    <div className="fixed inset-0 z-[2050] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
+    <div className="fixed inset-0 z-[2050] flex items-center justify-center p-4 pointer-events-none">
+      <div className="absolute inset-0 z-0 bg-black/50 backdrop-blur-sm pointer-events-auto" onClick={onClose} aria-hidden="true" />
       
-      <div className={`card relative w-full max-w-5xl max-h-[90vh] overflow-y-auto rounded-2xl shadow-2xl flex flex-col ${isDark ? 'bg-gray-900' : 'bg-white'}`}>
+      <div
+        className={`card relative z-10 w-full max-w-5xl max-h-[90vh] overflow-y-auto rounded-2xl shadow-2xl flex flex-col pointer-events-auto ${isDark ? 'bg-gray-900' : 'bg-white'}`}
+        onMouseDown={(e) => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
+      >
         
         {/* Header */}
         <div className={`flex items-center justify-between px-6 py-4 border-b ${isDark ? 'border-gray-800' : 'border-gray-100'}`}>
@@ -293,12 +486,12 @@ const QuotationsFormModal = ({ isOpen, onClose, onSave, initialData = null, isRT
         <form onSubmit={handleSubmit} className="p-6 space-y-6">
           
           {/* Section 1: Basic Info & Customer */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
             {/* Row 1: Quotation # & Customer Code */}
             <div>
               <label className={labelClass}>{isRTL ? 'رقم العرض' : 'Quotation #'}</label>
               <div className="relative">
-                <FaHashtag className={`absolute ${isRTL ? 'right-3' : 'left-3'} top-3 text-theme-text`} />
+                <FaHashtag className={`pointer-events-none absolute ${isRTL ? 'right-3' : 'left-3'} top-3 text-theme-text`} />
                 <input
                   type="text"
                   value={formData.id}
@@ -344,7 +537,7 @@ const QuotationsFormModal = ({ isOpen, onClose, onSave, initialData = null, isRT
             <div>
               <label className={labelClass}>{isRTL ? 'اسم العميل' : 'Customer Name'}</label>
               <div className="relative">
-                <FaUser className={`absolute ${isRTL ? 'right-3' : 'left-3'} top-3 text-theme-text`} />
+                <FaUser className={`pointer-events-none absolute ${isRTL ? 'right-3' : 'left-3'} top-3 text-theme-text`} />
                 <input
                   type="text"
                   value={formData.customerName}
@@ -377,11 +570,11 @@ const QuotationsFormModal = ({ isOpen, onClose, onSave, initialData = null, isRT
               </div>
             </div>
             {/* Row 3: Dates & Status */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-x-4 gap-y-4 md:col-span-2">
               <div>
                 <label className={labelClass}>{isRTL ? 'تاريخ العرض' : 'Quotation Date'}</label>
                 <div className="relative">
-                  <FaCalendarAlt className={`absolute ${isRTL ? 'right-3' : 'left-3'} top-3 text-theme-text`} />
+                  <FaCalendarAlt className={`pointer-events-none absolute ${isRTL ? 'right-3' : 'left-3'} top-3 text-theme-text`} />
                   <input
                     type="date"
                     value={formData.date}
@@ -394,7 +587,7 @@ const QuotationsFormModal = ({ isOpen, onClose, onSave, initialData = null, isRT
               <div>
                 <label className={labelClass}>{isRTL ? 'صالح حتى' : 'Valid Until'}</label>
                 <div className="relative">
-                  <FaCalendarAlt className={`absolute ${isRTL ? 'right-3' : 'left-3'} top-3 text-theme-text`} />
+                  <FaCalendarAlt className={`pointer-events-none absolute ${isRTL ? 'right-3' : 'left-3'} top-3 text-theme-text`} />
                   <input
                     type="date"
                     value={formData.expiryDate}
@@ -425,7 +618,7 @@ const QuotationsFormModal = ({ isOpen, onClose, onSave, initialData = null, isRT
           {/* Section 2: Items (Dynamic List) */}
           <div className="space-y-4">
             <div className="flex justify-between items-center">
-              <h3 className="text-lg font-bold text-theme-text">{isRTL ? 'العناصر' : 'Items'}</h3>
+              <h3 className="text-lg font-bold text-theme-text">{lineLabels.sectionTitle}</h3>
               <button
                 type="button"
                 onClick={addItem}
@@ -439,90 +632,90 @@ const QuotationsFormModal = ({ isOpen, onClose, onSave, initialData = null, isRT
             {errors.items && <p className="text-red-500 text-sm mb-2">{errors.items}</p>}
 
             {/* Desktop Table View */}
-            <div className="hidden md:block overflow-x-auto rounded-lg border border-theme-border dark:border-gray-700">
+            <div className="hidden md:block overflow-x-auto rounded-xl border border-theme-border dark:border-gray-700">
               <table className="w-full text-sm text-left">
-                <thead className="text-xs uppercase text-theme-text bg-gray-50/50 dark:bg-gray-800/50">
+                <thead className={`text-xs uppercase tracking-wide text-theme-text ${isDark ? 'bg-gray-800/60' : 'bg-slate-50'}`}>
                   <tr>
-                    <th className="px-4 py-3 min-w-[120px]">{isRTL ? 'النوع' : 'Type'}</th>
-                    <th className="px-4 py-3 min-w-[120px]">{isRTL ? 'الفئة' : 'Category'}</th>
-                    <th className="px-4 py-3 min-w-[200px]">{isRTL ? 'اسم البند' : 'Item Name'}</th>
-                    <th className="px-4 py-3 w-[100px]">{isRTL ? 'الكمية' : 'Qty'}</th>
-                    <th className="px-4 py-3 w-[120px]">{isRTL ? 'السعر' : 'Price'}</th>
-                    <th className="px-4 py-3 w-[120px]">{isRTL ? 'الخصم' : 'Discount'}</th>
-                    <th className="px-4 py-3 w-[120px]">{isRTL ? 'المجموع' : 'Total'}</th>
-                    <th className="px-4 py-3 w-[50px]"></th>
+                    <th className="px-3 py-3 min-w-[120px]">{lineLabels.type}</th>
+                    <th className="px-3 py-3 min-w-[120px]">{lineLabels.category}</th>
+                    <th className="px-3 py-3 min-w-[200px]">{lineLabels.itemName}</th>
+                    <th className="px-3 py-3 w-[120px]">{lineLabels.qtyOrBilling}</th>
+                    <th className="px-3 py-3 w-[120px]">{lineLabels.amount}</th>
+                    <th className="px-3 py-3 w-[180px]">{lineLabels.discount}</th>
+                    <th className="px-3 py-3 w-[120px]">{lineLabels.total}</th>
+                    <th className="px-3 py-3 w-[52px]"></th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-                  {formData.items.map((item, index) => (
-                    <tr key={item.id || index} className="hover:bg-gray-700/50 transition-colors">
-                      <td className="px-2 py-2">
+                <tbody>
+                  {formData.items.map((item, index) => {
+                    const serviceLine = isServiceSalesLine(item)
+                    const catalogMatch = findCatalogMatchForLine(item, products)
+                    const identityMeta = getLineIdentityMeta({
+                      ...item,
+                      brand: item.brand || catalogMatch?.brand,
+                      code: item.code || catalogMatch?.code,
+                      serviceType: item.serviceType || catalogMatch?.serviceType,
+                    })
+                    const billingValue = item.billingCycle || item.billing_cycle || catalogMatch?.billingCycle
+                    const availableAddons = resolveAvailableAddonsForLine(item, products)
+                    const rowBorder = isDark ? 'border-gray-800' : 'border-gray-100'
+                    return (
+                    <Fragment key={item.id || index}>
+                    <tr className={`border-t ${rowBorder} ${isDark ? 'hover:bg-gray-800/40' : 'hover:bg-slate-50/80'} transition-colors`}>
+                      <td className="px-2 py-3 align-top">
                         <select 
                           className="input input-sm w-full"
-                          value={item.type}
-                          onChange={e => updateItem(index, 'type', e.target.value)}
+                          value={item.type || 'Product'}
+                          onChange={e => handleLineTypeChange(index, e.target.value)}
                         >
                           {itemTypeOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
                         </select>
                       </td>
-                      <td className="px-2 py-2">
+                      <td className="px-2 py-3 align-top">
                          <select 
                           className="input input-sm w-full"
-                          value={item.category}
-                          onChange={e => {
-                            const newCategory = e.target.value;
-                            setFormData(prev => ({
-                              ...prev,
-                              items: prev.items.map((it, i) => i === index ? { 
-                                ...it, 
-                                category: newCategory,
-                                name: '',
-                                price: 0
-                              } : it)
-                            }));
-                          }}
+                          value={item.category || ''}
+                          onChange={e => handleLineCategoryChange(index, e.target.value)}
                         >
                           <option value="">{isRTL ? 'اختر...' : 'Select...'}</option>
-                          {categoryOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                          {getCategoryOptionsForLine(item).map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
                         </select>
                       </td>
-                      <td className="px-2 py-2">
+                      <td className="px-2 py-3 align-top">
                         <SearchableSelect
-                          options={products
-                            .filter(i => !item.category || i.category === item.category)
-                            .map(i => ({ value: i.name, label: i.name }))
-                          }
-                          value={item.name}
-                          onChange={val => {
-                            const selectedName = val;
-                            const product = products.find(p => p.name === selectedName);
-                            setFormData(prev => ({
-                              ...prev,
-                              items: prev.items.map((it, i) => i === index ? { 
-                                ...it, 
-                                name: selectedName,
-                                price: product ? product.price : it.price,
-                                type: product ? product.type : it.type,
-                                category: product ? product.category : it.category
-                              } : it)
-                            }));
-                          }}
-                          placeholder={isRTL ? 'اختر العنصر' : 'Select Item'}
+                          options={getProductOptionsForLine(item).map(i => ({ value: String(i.id), label: i.name }))}
+                          value={(item.item_id != null && item.item_id !== '' ? String(item.item_id) : (findCatalogProduct(products, { name: item.name, type: item.type, category: item.category })?.id != null ? String(findCatalogProduct(products, { name: item.name, type: item.type, category: item.category }).id) : ''))}
+                          onChange={val => handleLineItemSelect(index, val)}
+                          placeholder={serviceLine ? lineLabels.selectService : lineLabels.selectProduct}
                           className={`min-w-[180px] ${errors[`item_name_${index}`] ? 'border-red-500' : ''}`}
                           isRTL={isRTL}
                           showAllOption={false}
                         />
+                        {identityMeta ? (
+                          <div className="mt-1.5 text-[10px] text-theme-text/60 truncate" title={identityMeta}>
+                            {identityMeta}
+                          </div>
+                        ) : null}
                       </td>
-                      <td className="px-2 py-2">
-                        <input
-                          type="number"
-                          min="1"
-                          className={`input input-sm w-full ${errors[`item_qty_${index}`] ? 'border-red-500' : ''}`}
-                          value={item.quantity}
-                          onChange={e => updateItem(index, 'quantity', Number(e.target.value))}
-                        />
+                      <td className="px-2 py-3 align-top">
+                        {serviceLine ? (
+                          <div
+                            className="input input-sm w-full opacity-80 cursor-default flex items-center"
+                            title={lineLabels.billing}
+                          >
+                            {formatServiceBillingLabel(billingValue, isRTL) || lineLabels.notApplicable}
+                          </div>
+                        ) : (
+                          <input
+                            type="number"
+                            min="1"
+                            className={`input input-sm w-full ${errors[`item_qty_${index}`] ? 'border-red-500' : ''}`}
+                            value={item.quantity}
+                            onChange={e => updateItem(index, 'quantity', Number(e.target.value))}
+                          />
+                        )}
                       </td>
-                      <td className="px-2 py-2">
+                      <td className="px-2 py-3 align-top">
                         <input
                           type="number"
                           min="0"
@@ -532,30 +725,60 @@ const QuotationsFormModal = ({ isOpen, onClose, onSave, initialData = null, isRT
                           onChange={e => updateItem(index, 'price', Number(e.target.value))}
                         />
                       </td>
-                      <td className="px-2 py-2">
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          className="input input-sm w-full"
-                          value={item.discount}
-                          onChange={e => updateItem(index, 'discount', Number(e.target.value))}
-                        />
+                      <td className="px-2 py-3 align-top">
+                        <div className="flex items-center gap-1">
+                          <select
+                            className="input input-sm w-[72px] shrink-0"
+                            value={item.discountType || 'value'}
+                            onChange={e => updateItem(index, 'discountType', e.target.value)}
+                            title={isRTL ? 'نوع الخصم' : 'Discount type'}
+                          >
+                            <option value="value">{isRTL ? 'قيمة' : 'Value'}</option>
+                            <option value="percent">%</option>
+                          </select>
+                          <input
+                            type="number"
+                            min="0"
+                            max={(item.discountType || 'value') === 'percent' ? 100 : undefined}
+                            step="0.01"
+                            className={`input input-sm w-full ${errors[`item_discount_${index}`] ? 'border-red-500' : ''}`}
+                            value={item.discount}
+                            onChange={e => updateItem(index, 'discount', Number(e.target.value))}
+                            placeholder={(item.discountType || 'value') === 'percent' ? '%' : isRTL ? 'قيمة' : 'Value'}
+                          />
+                        </div>
                       </td>
-                      <td className="px-4 py-2 font-medium">
-                        {((item.quantity * item.price) - item.discount).toLocaleString()}
+                      <td className="px-3 py-3 align-top">
+                        <span className="inline-block min-w-[4.5rem] font-semibold tabular-nums text-theme-text">
+                          {getQuotationLineTotal(item).toLocaleString()}
+                        </span>
                       </td>
-                      <td className="px-2 py-2 text-center">
+                      <td className="px-2 py-3 align-top text-center">
                         <button
                           type="button"
                           onClick={() => removeItem(index)}
-                          className="text-red-500 hover:text-red-700 transition-colors p-2"
+                          className={`inline-flex h-8 w-8 items-center justify-center rounded-md text-red-500 transition-colors ${isDark ? 'hover:bg-red-950/40' : 'hover:bg-red-50'}`}
+                          title={isRTL ? 'حذف' : 'Remove'}
                         >
-                          <FaTrash size={14} />
+                          <FaTrash size={13} />
                         </button>
                       </td>
                     </tr>
-                  ))}
+                    <tr className={rowBorder}>
+                      <td colSpan={8} className="px-3 pb-3.5 pt-0">
+                        <SalesLineAddonsPicker
+                          line={item}
+                          catalogAddons={availableAddons}
+                          onChange={(next) => handleLineAddonsChange(index, next)}
+                          isRTL={isRTL}
+                          isDark={isDark}
+                          compact
+                        />
+                      </td>
+                    </tr>
+                    </Fragment>
+                    )
+                  })}
                   {formData.items.length === 0 && (
                     <tr>
                       <td colSpan="8" className="px-4 py-8 text-center text-theme-text opacity-50 italic">
@@ -569,98 +792,106 @@ const QuotationsFormModal = ({ isOpen, onClose, onSave, initialData = null, isRT
 
             {/* Mobile Cards View */}
             <div className="md:hidden space-y-4">
-              {formData.items.map((item, index) => (
-                <div key={item.id || index} className={`p-4 rounded-xl border ${isDark ? 'bg-gray-800/50 border-gray-700' : 'bg-gray-50 border-gray-200'} relative shadow-sm`}>
+              {formData.items.map((item, index) => {
+                const serviceLine = isServiceSalesLine(item)
+                const catalogMatch = findCatalogMatchForLine(item, products)
+                const identityMeta = getLineIdentityMeta({
+                  ...item,
+                  brand: item.brand || catalogMatch?.brand,
+                  code: item.code || catalogMatch?.code,
+                  serviceType: item.serviceType || catalogMatch?.serviceType,
+                })
+                const billingValue = item.billingCycle || item.billing_cycle || catalogMatch?.billingCycle
+                const availableAddons = resolveAvailableAddonsForLine(item, products)
+                return (
+                <div key={item.id || index} className={`p-4 rounded-xl border relative ${isDark ? 'bg-gray-900/40 border-gray-700' : 'bg-white border-gray-200 shadow-sm'}`}>
                   <div className="flex justify-between items-center mb-4">
-                    <span className="text-sm font-bold text-blue-600 bg-blue-50 dark:bg-blue-900/30 px-3 py-1 rounded-full">
+                    <span className={`text-sm font-semibold px-2.5 py-1 rounded-md ${isDark ? 'text-blue-300 bg-blue-950/40' : 'text-blue-700 bg-blue-50'}`}>
                       {isRTL ? `بند #${index + 1}` : `Item #${index + 1}`}
                     </span>
                     <button
                       type="button"
                       onClick={() => removeItem(index)}
-                      className="text-red-500 hover:text-red-700 p-2 bg-red-50 dark:bg-red-900/30 rounded-full transition-colors"
+                      className={`inline-flex h-8 w-8 items-center justify-center rounded-md text-red-500 transition-colors ${isDark ? 'hover:bg-red-950/40' : 'hover:bg-red-50'}`}
+                      title={isRTL ? 'حذف' : 'Remove'}
                     >
-                      <FaTrash size={14} />
+                      <FaTrash size={13} />
                     </button>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-2 gap-3.5">
                     <div className="col-span-1">
-                      <label className="text-[10px] font-bold uppercase text-gray-500 mb-1 block">{isRTL ? 'النوع' : 'Type'}</label>
+                      <label className="text-[10px] font-bold uppercase text-gray-500 mb-1 block">{lineLabels.type}</label>
                       <select 
                         className="input input-sm w-full"
-                        value={item.type}
-                        onChange={e => updateItem(index, 'type', e.target.value)}
+                        value={item.type || 'Product'}
+                        onChange={e => handleLineTypeChange(index, e.target.value)}
                       >
                         {itemTypeOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
                       </select>
                     </div>
 
                     <div className="col-span-1">
-                      <label className="text-[10px] font-bold uppercase text-gray-500 mb-1 block">{isRTL ? 'الفئة' : 'Category'}</label>
+                      <label className="text-[10px] font-bold uppercase text-gray-500 mb-1 block">{lineLabels.category}</label>
                       <select 
                         className="input input-sm w-full"
-                        value={item.category}
-                        onChange={e => {
-                          const newCategory = e.target.value;
-                          setFormData(prev => ({
-                            ...prev,
-                            items: prev.items.map((it, i) => i === index ? { 
-                              ...it, 
-                              category: newCategory,
-                              name: '',
-                              price: 0
-                            } : it)
-                          }));
-                        }}
+                        value={item.category || ''}
+                        onChange={e => handleLineCategoryChange(index, e.target.value)}
                       >
                         <option value="">{isRTL ? 'اختر...' : 'Select...'}</option>
-                        {categoryOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                        {getCategoryOptionsForLine(item).map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
                       </select>
                     </div>
 
                     <div className="col-span-2">
-                      <label className="text-[10px] font-bold uppercase text-gray-500 mb-1 block">{isRTL ? 'اسم البند' : 'Item Name'}</label>
+                      <label className="text-[10px] font-bold uppercase text-gray-500 mb-1 block">
+                        {serviceLine ? lineLabels.serviceName : lineLabels.productName}
+                      </label>
                       <SearchableSelect
-                          options={products
-                            .filter(i => !item.category || i.category === item.category)
-                            .map(i => ({ value: i.name, label: i.name }))
-                          }
-                          value={item.name}
-                          onChange={val => {
-                            const selectedName = val;
-                            const product = products.find(p => p.name === selectedName);
-                            setFormData(prev => ({
-                              ...prev,
-                              items: prev.items.map((it, i) => i === index ? { 
-                                ...it, 
-                                name: selectedName,
-                                price: product ? product.price : it.price,
-                                type: product ? product.type : it.type,
-                                category: product ? product.category : it.category
-                              } : it)
-                            }));
-                          }}
-                          placeholder={isRTL ? 'اختر العنصر' : 'Select Item'}
+                          options={getProductOptionsForLine(item).map(i => ({ value: String(i.id), label: i.name }))}
+                          value={(item.item_id != null && item.item_id !== '' ? String(item.item_id) : (findCatalogProduct(products, { name: item.name, type: item.type, category: item.category })?.id != null ? String(findCatalogProduct(products, { name: item.name, type: item.type, category: item.category }).id) : ''))}
+                          onChange={val => handleLineItemSelect(index, val)}
+                          placeholder={serviceLine ? lineLabels.selectService : lineLabels.selectProduct}
                           className={`w-full ${errors[`item_name_${index}`] ? 'border-red-500' : ''}`}
                           isRTL={isRTL}
                           showAllOption={false}
                         />
+                      {identityMeta ? (
+                        <div className="mt-1 text-[10px] text-theme-text/60 truncate">{identityMeta}</div>
+                      ) : null}
                     </div>
 
-                    <div className="col-span-1">
-                      <label className="text-[10px] font-bold uppercase text-gray-500 mb-1 block">{isRTL ? 'الكمية' : 'Qty'}</label>
-                      <input
-                        type="number"
-                        min="1"
-                        className={`input input-sm w-full ${errors[`item_qty_${index}`] ? 'border-red-500' : ''}`}
-                        value={item.quantity}
-                        onChange={e => updateItem(index, 'quantity', Number(e.target.value))}
+                    <div className="col-span-2">
+                      <SalesLineAddonsPicker
+                        line={item}
+                        catalogAddons={availableAddons}
+                        onChange={(next) => handleLineAddonsChange(index, next)}
+                        isRTL={isRTL}
+                        isDark={isDark}
                       />
                     </div>
 
                     <div className="col-span-1">
-                      <label className="text-[10px] font-bold uppercase text-gray-500 mb-1 block">{isRTL ? 'السعر' : 'Price'}</label>
+                      <label className="text-[10px] font-bold uppercase text-gray-500 mb-1 block">
+                        {serviceLine ? lineLabels.billing : lineLabels.qty}
+                      </label>
+                      {serviceLine ? (
+                        <div className="input input-sm w-full opacity-80 cursor-default flex items-center">
+                          {formatServiceBillingLabel(billingValue, isRTL) || lineLabels.notApplicable}
+                        </div>
+                      ) : (
+                        <input
+                          type="number"
+                          min="1"
+                          className={`input input-sm w-full ${errors[`item_qty_${index}`] ? 'border-red-500' : ''}`}
+                          value={item.quantity}
+                          onChange={e => updateItem(index, 'quantity', Number(e.target.value))}
+                        />
+                      )}
+                    </div>
+
+                    <div className="col-span-1">
+                      <label className="text-[10px] font-bold uppercase text-gray-500 mb-1 block">{lineLabels.amount}</label>
                       <input
                         type="number"
                         min="0"
@@ -671,27 +902,39 @@ const QuotationsFormModal = ({ isOpen, onClose, onSave, initialData = null, isRT
                       />
                     </div>
 
-                    <div className="col-span-1">
-                      <label className="text-[10px] font-bold uppercase text-gray-500 mb-1 block">{isRTL ? 'الخصم' : 'Discount'}</label>
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        className="input input-sm w-full"
-                        value={item.discount}
-                        onChange={e => updateItem(index, 'discount', Number(e.target.value))}
-                      />
+                    <div className="col-span-2">
+                      <label className="text-[10px] font-bold uppercase text-gray-500 mb-1 block">{lineLabels.discount}</label>
+                      <div className="flex items-center gap-1">
+                        <select
+                          className="input input-sm w-[72px] shrink-0"
+                          value={item.discountType || 'value'}
+                          onChange={e => updateItem(index, 'discountType', e.target.value)}
+                        >
+                          <option value="value">{isRTL ? 'قيمة' : 'Value'}</option>
+                          <option value="percent">%</option>
+                        </select>
+                        <input
+                          type="number"
+                          min="0"
+                          max={(item.discountType || 'value') === 'percent' ? 100 : undefined}
+                          step="0.01"
+                          className={`input input-sm w-full ${errors[`item_discount_${index}`] ? 'border-red-500' : ''}`}
+                          value={item.discount}
+                          onChange={e => updateItem(index, 'discount', Number(e.target.value))}
+                        />
+                      </div>
                     </div>
 
                     <div className="col-span-1 flex flex-col justify-end items-end">
-                      <label className="text-[10px] font-bold uppercase text-gray-500 mb-1 block">{isRTL ? 'المجموع' : 'Total'}</label>
+                      <label className="text-[10px] font-bold uppercase text-gray-500 mb-1 block">{lineLabels.total}</label>
                       <span className="font-bold text-lg text-blue-600">
-                        {((item.quantity * item.price) - item.discount).toLocaleString()}
+                        {getQuotationLineTotal(item).toLocaleString()}
                       </span>
                     </div>
                   </div>
                 </div>
-              ))}
+                )
+              })}
               {formData.items.length === 0 && (
                 <div className="p-8 text-center text-theme-text opacity-50 italic border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-xl">
                   {isRTL ? 'لا توجد عناصر. أضف بند جديد.' : 'No items. Add a new item.'}
@@ -709,7 +952,7 @@ const QuotationsFormModal = ({ isOpen, onClose, onSave, initialData = null, isRT
                <div>
                 <label className={labelClass}>{isRTL ? 'ملاحظات' : 'Notes'}</label>
                 <div className="relative">
-                  <FaStickyNote className={`absolute ${isRTL ? 'right-3' : 'left-3'} top-3 text-theme-text`} />
+                  <FaStickyNote className={`pointer-events-none absolute ${isRTL ? 'right-3' : 'left-3'} top-3 text-theme-text`} />
                   <textarea
                     value={formData.notes}
                     onChange={e => setFormData({...formData, notes: e.target.value})}
@@ -722,7 +965,15 @@ const QuotationsFormModal = ({ isOpen, onClose, onSave, initialData = null, isRT
               <div>
                 <label className={labelClass}>{isRTL ? 'المرفقات' : 'Attachment'}</label>
                 <div className={`border-2 border-dashed rounded-lg p-4 text-center cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors ${isDark ? 'border-gray-700' : 'border-gray-300'}`}>
-                  <input type="file" className="hidden" id="quotation-file-upload" onChange={e => setFormData({...formData, attachment: e.target.files[0]})} />
+                  <input
+                    type="file"
+                    className="hidden"
+                    id="quotation-file-upload"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0] || null
+                      setFormData((prev) => ({ ...prev, attachment: file }))
+                    }}
+                  />
                   <label htmlFor="quotation-file-upload" className="cursor-pointer flex flex-col items-center gap-2">
                     <FaPaperclip className="text-gray-400" size={24} />
                     <span className="text-sm text-gray-500">
@@ -748,43 +999,55 @@ const QuotationsFormModal = ({ isOpen, onClose, onSave, initialData = null, isRT
                 <div className="flex justify-between items-center text-sm gap-3">
                   <div className="flex items-center gap-2 min-w-0">
                     <span className="text-theme-text whitespace-nowrap">{isRTL ? 'الضريبة' : 'Tax'}</span>
-                    <label className="flex items-center gap-2 cursor-pointer">
+                    <label className="flex items-center gap-1.5 cursor-pointer select-none">
                       <input 
                         type="checkbox" 
                         className="checkbox checkbox-xs checkbox-primary"
-                        checked={formData.isTaxEnabled}
+                        checked={coerceTaxEnabled(formData.isTaxEnabled)}
                         onChange={(e) => {
                            const isEnabled = e.target.checked
-                           const rate = Math.max(0, Number(formData.taxRate) || DEFAULT_TAX_RATE)
-                           setFormData(prev => ({ 
-                             ...prev, 
-                             isTaxEnabled: isEnabled,
-                             taxRate: prev.taxRate || DEFAULT_TAX_RATE,
-                             tax: isEnabled ? subtotal * (rate / 100) : 0
-                           }))
+                           setFormData(prev => {
+                             const rate = resolveActiveTaxRate(prev.taxRate)
+                             return {
+                               ...prev,
+                               isTaxEnabled: isEnabled,
+                               taxRate: rate,
+                               tax: isEnabled ? subtotal * (rate / 100) : 0,
+                             }
+                           })
                         }}
                       />
                       <span className="text-xs text-gray-500">{isRTL ? 'تطبيق' : 'Apply'}</span>
                     </label>
                   </div>
-                  <div className="flex items-center gap-2 w-1/2 justify-end">
-                    <div className="relative w-20">
+                  <div className="flex items-center gap-2 shrink-0">
+                    <div className="flex items-center gap-1">
                       <input
                         type="number"
                         min="0"
                         step="0.01"
-                        value={formData.taxRate ?? DEFAULT_TAX_RATE}
-                        onChange={(e) => setFormData(prev => ({ ...prev, taxRate: Number(e.target.value) }))}
-                        className="input input-sm w-full text-right pr-6"
-                        disabled={!formData.isTaxEnabled}
+                        value={resolveActiveTaxRate(formData.taxRate)}
+                        onChange={(e) => {
+                          const raw = e.target.value
+                          const nextRate = raw === '' ? DEFAULT_TAX_RATE : Math.max(0, Number(raw) || 0)
+                          setFormData(prev => ({
+                            ...prev,
+                            taxRate: nextRate,
+                            tax: prev.isTaxEnabled ? subtotal * (nextRate / 100) : 0,
+                          }))
+                        }}
+                        className="input input-sm w-[4.5rem] text-center px-2"
+                        disabled={!coerceTaxEnabled(formData.isTaxEnabled)}
+                        aria-label={isRTL ? 'نسبة الضريبة' : 'Tax rate'}
                       />
-                      <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-500">%</span>
+                      <span className="text-xs font-semibold text-gray-500 w-4 text-center">%</span>
                     </div>
                     <input
                       type="text"
                       value={(Number(formData.tax) || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                      className="input input-sm w-28 text-right opacity-70 cursor-not-allowed bg-gray-100 dark:bg-gray-700"
+                      className="input input-sm w-28 text-end opacity-80 cursor-not-allowed bg-gray-100 dark:bg-gray-700"
                       readOnly
+                      aria-label={isRTL ? 'قيمة الضريبة' : 'Tax amount'}
                     />
                   </div>
                 </div>
