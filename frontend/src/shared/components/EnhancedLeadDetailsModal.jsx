@@ -2679,9 +2679,9 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
               </div>
 
               {/* Lead Info */}
-              <div className="min-w-0 flex-1 overflow-hidden">
-                <div className="flex min-w-0 items-center gap-2">
-                  <h2 className={`mb-0.5 truncate text-sm font-semibold sm:text-lg ${isLight ? 'text-slate-900' : 'text-white'}`}>{leadData.name}</h2>
+              <div className="min-w-0 flex-1">
+                <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                  <h2 className={`min-w-0 max-w-full break-words text-sm font-semibold sm:text-lg ${isLight ? 'text-slate-900' : 'text-white'}`}>{leadData.name}</h2>
                   {/* Lead Seriousness Score Badge */}
                   <div 
                     title={isArabic ? 'تقييم جدية العميل (0-100)' : 'Lead Seriousness Score (0-100)'}
@@ -2787,7 +2787,7 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
             </div>
 
             {/* Actions Section */}
-            <div className="flex shrink-0 flex-col items-end space-y-2 sm:space-y-3">
+            <div className="flex max-w-[48%] shrink-0 flex-col items-end space-y-2 sm:max-w-none sm:space-y-3">
               {/* Action Buttons Row — close stays last with the other header icons */}
               <div className="relative flex items-center justify-end gap-0.5 sm:gap-2">
                 {/* Removed Check-In Button from here */}
