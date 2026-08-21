@@ -1064,7 +1064,7 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
         onClick={onClick}
         aria-label={isArabic ? 'إضافة إجراء' : 'Add Action'}
         title={isArabic ? 'إضافة إجراء' : 'Add Action'}
-        className="btn-icon bg-emerald-500 hover:bg-emerald-600 text-white"
+        className="btn-icon h-8 w-8 shrink-0 bg-emerald-500 text-white hover:bg-emerald-600 sm:h-[34px] sm:w-[34px]"
       >
         <FaPlus className="text-sm" />
       </button>
@@ -2667,25 +2667,25 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
 
   const isLight = theme === 'light';
   return createPortal(
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[9999] p-0">
-      <div className={`${isLight ? 'bg-white/70 backdrop-blur-md text-slate-800' : 'bg-slate-800 text-white'} w-full sm:max-w-5xl max-h-[95vh] sm:max-h-[85vh] h-auto sm:rounded-3xl overflow-y-auto shadow-2xl p-2 sm:p-4`}>
+    <div className="fixed inset-0 z-[9999] flex items-end justify-center overflow-hidden bg-black/50 p-0 sm:items-center">
+      <div className={`${isLight ? 'bg-white/70 backdrop-blur-md text-slate-800' : 'bg-slate-800 text-white'} relative flex h-[100dvh] w-full max-w-[100vw] flex-col overflow-x-hidden overflow-y-auto overscroll-contain shadow-2xl sm:h-auto sm:max-h-[85vh] sm:max-w-5xl sm:rounded-3xl sm:p-4 p-2`}>
         {/* Header */}
-        <div className={`${isLight ? 'bg-white/60 border-gray-200' : 'bg-slate-800 border-slate-700'} p-2 sm:p-4 border-b`}>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2 sm:space-x-4 rtl:space-x-reverse">
+        <div className={`${isLight ? 'bg-white/60 border-gray-200' : 'bg-slate-800 border-slate-700'} relative w-full max-w-full border-b p-2 sm:p-4`}>
+          <div className="flex w-full max-w-full items-start justify-between gap-2 sm:items-center">
+            <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-4">
               {/* Profile Picture */}
-              <div className="w-10 h-10 sm:w-12 sm:h-12 bg-slate-600 rounded-full flex items-center justify-center">
-                <FaUser className="text-xl sm:text-2xl text-slate-300" />
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-600 sm:h-12 sm:w-12">
+                <FaUser className="text-lg text-slate-300 sm:text-2xl" />
               </div>
 
               {/* Lead Info */}
-              <div className="flex-1">
-                <div className="flex items-center gap-2">
-                  <h2 className={`text-base sm:text-lg font-semibold mb-0.5 ${isLight ? 'text-slate-900' : 'text-white'}`}>{leadData.name}</h2>
+              <div className="min-w-0 flex-1 overflow-hidden">
+                <div className="flex min-w-0 items-center gap-2">
+                  <h2 className={`mb-0.5 truncate text-sm font-semibold sm:text-lg ${isLight ? 'text-slate-900' : 'text-white'}`}>{leadData.name}</h2>
                   {/* Lead Seriousness Score Badge */}
                   <div 
                     title={isArabic ? 'تقييم جدية العميل (0-100)' : 'Lead Seriousness Score (0-100)'}
-                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                    className={`shrink-0 px-2 py-0.5 rounded-full text-[10px] font-bold border ${
                       (effectiveLead?.score || 50) >= 70 ? 'bg-green-500/20 text-green-400 border-green-500/30' :
                       (effectiveLead?.score || 50) >= 40 ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30' :
                       'bg-red-500/20 text-red-400 border-red-500/30'
@@ -2697,7 +2697,7 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
                 {false && crmSettings?.showMobileNumber !== false && (
                   <div className="mb-0.5 flex flex-col items-start gap-0.5">
                     {phoneEntries.length > 0 ? phoneEntries.map((entry, idx) => (
-                      <div key={idx} className={`group flex max-w-[240px] items-center gap-1 text-xs ${isLight ? 'text-slate-600' : 'text-slate-300'}`}>
+                      <div key={idx} className={`group flex max-w-full min-w-0 items-center gap-1 text-xs sm:max-w-[240px] ${isLight ? 'text-slate-600' : 'text-slate-300'}`}>
                         <span dir="ltr" className="min-w-0 truncate leading-4" title={entry.display}>{entry.display}</span>
                         <button
                           type="button"
@@ -2742,7 +2742,7 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
                 {(phoneEntries.length > 0 || (leadData.phone && leadData.phone !== '-')) && (
                   <div className="mt-1 flex flex-col items-start gap-0.5">
                     {phoneEntries.length > 0 ? phoneEntries.map((entry, idx) => (
-                      <div key={idx} className={`group flex max-w-[240px] items-center gap-1 text-xs ${isLight ? 'text-slate-600' : 'text-slate-300'}`}>
+                      <div key={idx} className={`group flex max-w-full min-w-0 items-center gap-1 text-xs sm:max-w-[240px] ${isLight ? 'text-slate-600' : 'text-slate-300'}`}>
                         <span dir="ltr" className="min-w-0 truncate leading-4" title={entry.display}>{entry.display}</span>
                         <button
                           type="button"
@@ -2787,9 +2787,9 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
             </div>
 
             {/* Actions Section */}
-            <div className="flex flex-col items-end space-y-2 sm:space-y-3">
-              {/* Action Buttons Row */}
-              <div className="flex items-center justify-end gap-1 sm:gap-2 w-auto relative">
+            <div className="flex shrink-0 flex-col items-end space-y-2 sm:space-y-3">
+              {/* Action Buttons Row — close stays last with the other header icons */}
+              <div className="relative flex items-center justify-end gap-0.5 sm:gap-2">
                 {/* Removed Check-In Button from here */}
                 {/* Removed preview toggle button */}
                 <AddActionIconButton visible={canAddAction} onClick={() => setShowAddActionModal(true)} />
@@ -2800,7 +2800,7 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
                     onClick={() => setShowReAssignModal(true)}
                     aria-label={isArabic ? 'تعيين' : 'Assign'}
                     title={isArabic ? 'تعيين' : 'Assign'}
-                    className="btn-icon relative"
+                    className="btn-icon relative h-8 w-8 shrink-0 sm:h-[34px] sm:w-[34px]"
                   >
                     <FaUserCheck className="text-sm" />
                   </button>
@@ -2880,7 +2880,7 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
                     onClick={() => setShowEditLeadModal(true)}
                     aria-label={isArabic ? 'تعديل' : 'Edit'}
                     title={isArabic ? 'تعديل' : 'Edit'}
-                    className="btn-icon"
+                    className="btn-icon h-8 w-8 shrink-0 sm:h-[34px] sm:w-[34px]"
                   >
                     <FaEdit className="text-sm" />
                   </button>
@@ -2891,7 +2891,7 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
                   onClick={() => setShowHeaderMenu(prev => !prev)}
                   aria-label={isArabic ? 'المزيد' : 'More'}
                   title={isArabic ? 'المزيد' : 'More'}
-                  className="btn-icon"
+                  className="btn-icon h-8 w-8 shrink-0 sm:h-[34px] sm:w-[34px]"
                 >
                   <FaEllipsisV className="text-sm" />
                 </button>
@@ -2932,13 +2932,15 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
                     )}
                   </div>
                 )}
-                {/* Close (X) - stays far right */}
+                {/* Close — last icon in the same toolbar row */}
                 <button
+                  type="button"
                   onClick={onClose}
                   aria-label={isArabic ? 'إغلاق' : 'Close'}
-                  className="btn-icon"
+                  title={isArabic ? 'إغلاق' : 'Close'}
+                  className="btn-icon h-8 w-8 shrink-0 text-red-500 sm:h-[34px] sm:w-[34px]"
                 >
-                  <FaTimes className="text-lg" />
+                  <FaTimes className="text-sm sm:text-lg" />
                 </button>
               </div>
               <div className="w-full h-px"></div>
@@ -2985,18 +2987,16 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
         />
 
         {showAddActionModal && (
-          <div className="px-0 sm:px-0">
-            <AddActionModal
-              isOpen={showAddActionModal}
-              onClose={() => setShowAddActionModal(false)}
-              onSave={handleAddAction}
-              lead={effectiveLead}
-              isOwnerProp={isOwner}
-              isSuperAdminProp={user?.is_super_admin}
-              inline={true}
-              initialType={actionType}
-            />
-          </div>
+          <AddActionModal
+            isOpen={showAddActionModal}
+            onClose={() => setShowAddActionModal(false)}
+            onSave={handleAddAction}
+            lead={effectiveLead}
+            isOwnerProp={isOwner}
+            isSuperAdminProp={user?.is_super_admin}
+            inline={false}
+            initialType={actionType}
+          />
         )}
 
         <PaymentPlanModal
@@ -3039,13 +3039,13 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
         />
 
         {/* Tabs */}
-        <div className={`${isLight ? 'bg-white/60 border-gray-200' : 'bg-slate-800 border-slate-700'} px-0 sm:px-6 border-b ${showAddActionModal ? 'hidden' : ''}`}>
-          <div className="flex justify-between w-full">
+        <div className={`${isLight ? 'bg-white/60 border-gray-200' : 'bg-slate-800 border-slate-700'} w-full max-w-full border-b px-0 sm:px-6`}>
+          <div className="flex w-full max-w-full gap-0 overflow-x-auto overscroll-x-contain">
             {tabs.map((tab) => (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex-1 py-2 sm:py-4 px-2 sm:px-4 text-[10px] sm:text-sm font-medium border-b-2 transition-all duration-200 text-center ${activeTab === tab.id
+                className={`min-w-0 flex-1 basis-0 truncate whitespace-nowrap py-2 px-1.5 text-[10px] font-medium border-b-2 transition-all duration-200 text-center sm:px-4 sm:py-4 sm:text-sm ${activeTab === tab.id
                   ? `${isLight ? 'border-emerald-500 text-slate-900 bg-emerald-50 rounded-t-lg shadow-lg shadow-emerald-200/50 font-semibold' : 'border-emerald-400 text-white bg-emerald-500/20 rounded-t-lg shadow-lg shadow-emerald-500/10 font-semibold'}`
                   : `${isLight ? 'border-transparent text-slate-500 hover:text-slate-900 hover:border-slate-300 hover:bg-slate-100' : 'border-transparent text-slate-400 hover:text-white hover:border-slate-500 hover:bg-slate-700/30'}`
                   }`}
@@ -3057,7 +3057,7 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
         </div>
 
         {/* Content */}
-        <div className={`flex-1 overflow-y-auto p-2 sm:p-6 ${isLight ? 'bg-white/70' : 'bg-slate-800'} ${showAddActionModal ? 'hidden' : ''}`}>
+        <div className={`flex-1 overflow-y-auto overflow-x-hidden p-2 sm:p-6 ${isLight ? 'bg-white/70' : 'bg-slate-800'}`}>
           {activeTab === 'overview' && (
             <div className="space-y-3 sm:space-y-8">
               {leadLeakDiagnostic && (
@@ -3215,13 +3215,13 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
                     {leadInformationRows.filter((row) => row.key !== 'phone').map((row) => (
                       <div
                         key={row.key}
-                        className={`flex justify-between gap-3 ${row.multiline ? 'items-start' : 'items-center'}`}
+                        className={`flex justify-between gap-2 sm:gap-3 ${row.multiline ? 'items-start' : 'items-center'}`}
                       >
-                        <span className={`${isLight ? 'text-slate-600' : 'text-slate-300'} text-xs sm:text-sm ${row.multiline ? 'whitespace-nowrap' : ''}`}>
+                        <span className={`${isLight ? 'text-slate-600' : 'text-slate-300'} shrink-0 text-xs sm:text-sm`}>
                           {row.label}
                         </span>
                         <span
-                          className={`${isLight ? 'text-black' : 'text-white'} text-xs sm:text-sm text-right ${row.multiline ? 'whitespace-pre-line break-words' : ''} ${row.key === 'project' || row.key === 'item' ? 'font-medium' : ''}`}
+                          className={`${isLight ? 'text-black' : 'text-white'} min-w-0 break-words text-right text-xs sm:text-sm ${row.multiline ? 'whitespace-pre-line' : ''} ${row.key === 'project' || row.key === 'item' ? 'font-medium' : ''}`}
                         >
                           {row.value}
                         </span>
@@ -4424,6 +4424,7 @@ const EnhancedLeadDetailsModal = ({ lead, isOpen, onClose, isArabic = false, the
         </div>
       )}
 
+      {/* Nested lead modals */}
       <LeadConvertToCustomerModal
         isOpen={showConvertCustomerModal}
         lead={effectiveLead || lead}

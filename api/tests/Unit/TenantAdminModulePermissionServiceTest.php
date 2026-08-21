@@ -15,6 +15,18 @@ class TenantAdminModulePermissionServiceTest extends TestCase
 
         $this->assertContains('addLead', $expanded['module_permissions']['Leads']);
         $this->assertContains('showModule', $expanded['module_permissions']['Customers']);
+        $this->assertContains('Customers Report_show', $expanded['module_permissions']['Reports']);
+    }
+
+    public function test_expand_meta_data_excludes_customers_report_for_real_estate(): void
+    {
+        $service = new TenantAdminModulePermissionService();
+        $expanded = $service->expandMetaData([], 'Real Estate');
+
+        $this->assertArrayNotHasKey('Customers', $expanded['module_permissions']);
+        $this->assertNotContains('Customers Report_show', $expanded['module_permissions']['Reports']);
+        $this->assertNotContains('Customers Report_export', $expanded['module_permissions']['Reports']);
+        $this->assertContains('Targets & Revenue_show', $expanded['module_permissions']['Reports']);
     }
 
     public function test_expand_meta_data_keeps_existing_permissions(): void

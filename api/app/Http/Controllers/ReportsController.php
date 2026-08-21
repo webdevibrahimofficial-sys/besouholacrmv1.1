@@ -641,8 +641,11 @@ class ReportsController extends Controller
         // 8. Check In Report
         $checkInStats = $getStats(Visit::class, 'check_in_at');
 
-        // 9. Customers Report (real customers table, tenant + hierarchy scoped)
-        $customersStats = $getStats(Customer::class, 'created_at', [], null, 'assigned_to');
+        // 9. Customers Report (General tenants only)
+        $isRealEstateTenant = str_contains(strtolower((string) $companyType), 'real');
+        $customersStats = $isRealEstateTenant
+            ? ['value' => 0, 'trend' => 0, 'trendUp' => true]
+            : $getStats(Customer::class, 'created_at', [], null, 'assigned_to');
 
         // 10. Targets & Revenue (Sum amount)
         $revenueStats = $getStats(Revenue::class, 'created_at', [], 'amount');

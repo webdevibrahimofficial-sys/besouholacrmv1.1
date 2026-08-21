@@ -23,7 +23,12 @@ final class DecisionEngine
         array $calculationTrace,
         string $mode = 'evaluate',
     ): FinancialDecision {
-        if ($mode !== 'evaluate') {
+        if ($mode !== 'evaluate' && $mode !== 'max_discount') {
+            return $this->make('incomplete', 'incomplete', ['not_implemented'], [], $metrics, $assumptions, $policy, $source, $calculationTrace);
+        }
+
+        // max_discount is handled by FinancialDecisionService before calling decide with evaluate semantics.
+        if ($mode === 'max_discount') {
             return $this->make('incomplete', 'incomplete', ['not_implemented'], [], $metrics, $assumptions, $policy, $source, $calculationTrace);
         }
 

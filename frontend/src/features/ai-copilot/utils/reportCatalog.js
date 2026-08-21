@@ -71,12 +71,13 @@ export const COPILOT_REPORT_CATALOG = [
     path: '/reports/sales/check-in',
     filters: ['date_from', 'date_to', 'assigned_to'],
   },
-  {
+    {
     key: 'customers',
     name: 'Customers Report',
     permission: 'Customers Report',
     path: '/reports/sales/customers',
     filters: ['date_from', 'date_to'],
+    requiresCompanyType: 'general',
   },
   {
     key: 'targets_revenue',

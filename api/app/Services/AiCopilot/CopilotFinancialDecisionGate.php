@@ -26,9 +26,10 @@ class CopilotFinancialDecisionGate extends AiCopilotChatService
             $result = $this->financial->evaluateForCopilot($user, $message, $conversation?->id ?? $conversationId, $preferredLocale);
             $toolResult = FinancialEvaluationResource::stripTrace(is_array($result['tool_result'] ?? null) ? $result['tool_result'] : []);
             $messageText = (string) ($result['message'] ?? '');
+            $toolName = (string) ($result['tool'] ?? 'evaluate_financial_offer');
 
-            $this->storeMessage($conversation, 'tool', $messageText, 'evaluate_financial_offer', $toolResult);
-            $this->storeMessage($conversation, 'assistant', $messageText, 'evaluate_financial_offer', $toolResult);
+            $this->storeMessage($conversation, 'tool', $messageText, $toolName, $toolResult);
+            $this->storeMessage($conversation, 'assistant', $messageText, $toolName, $toolResult);
 
             if ($conversation) {
                 $conversation->update([
@@ -40,9 +41,9 @@ class CopilotFinancialDecisionGate extends AiCopilotChatService
             return [
                 'conversation_id' => $conversation?->id,
                 'message' => $messageText,
-                'tool' => 'evaluate_financial_offer',
+                'tool' => $toolName,
                 'tool_result' => $toolResult,
-                'ui_actions' => [],
+                'ui_actions' => is_array($result['ui_actions'] ?? null) ? $result['ui_actions'] : [],
                 'locale' => $result['locale'] ?? 'en',
             ];
         }

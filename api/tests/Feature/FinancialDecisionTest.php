@@ -195,6 +195,70 @@ class FinancialDecisionTest extends TestCase
         $this->assertStringNotContainsString('calculation_trace', (string) $response->getContent());
     }
 
+    public function test_rejected_evaluate_includes_engine_max_discount_recommendation(): void
+    {
+        $this->actingAsTenantUser($this->admin);
+        $this->putJson('/api/financial-decision/settings', $this->settingsPayload())->assertOk();
+
+        $response = $this->postJson('/api/ai/copilot/financial/evaluate', $this->offerPayload([
+            'discount_percentage' => 9,
+            'duration_months' => 12,
+        ]));
+
+        $response->assertOk()
+            ->assertJsonPath('data.decision', 'rejected');
+
+        $recs = $response->json('data.recommendations') ?? [];
+        $this->assertNotEmpty($recs);
+        $codes = array_column($recs, 'code');
+        $this->assertContains('max_discount_percentage', $codes);
+        $this->assertStringContainsString('Maximum acceptable discount', (string) $response->json('data.message'));
+        $this->assertStringContainsString('Discount exceeds the maximum allowed', (string) $response->json('data.message'));
+        $this->assertStringNotContainsString('discount_exceeds_maximum', (string) $response->json('data.message'));
+        $this->assertSame('financial_decision_card', $response->json('data.ui_actions.0.type'));
+        $this->assertStringNotContainsString('calculation_trace', (string) $response->getContent());
+    }
+
+    public function test_max_discount_mode_returns_backend_owned_ceiling(): void
+    {
+        $this->actingAsTenantUser($this->admin);
+        $this->putJson('/api/financial-decision/settings', $this->settingsPayload())->assertOk();
+
+        $response = $this->postJson('/api/ai/copilot/financial/evaluate', $this->offerPayload([
+            'mode' => 'max_discount',
+            'intent' => 'max_discount',
+            'discount_percentage' => null,
+            'duration_months' => 12,
+        ]));
+
+        $response->assertOk();
+        $this->assertContains($response->json('data.decision'), ['approved', 'approved_with_warning']);
+        $recs = $response->json('data.recommendations') ?? [];
+        $max = collect($recs)->firstWhere('code', 'max_discount_percentage');
+        $this->assertNotNull($max);
+        $this->assertSame('5.00', $max['value']);
+        $this->assertStringContainsString('acceptable discount at 5%', (string) $response->json('data.message'));
+        $this->assertSame('financial_decision_card', $response->json('data.ui_actions.0.type'));
+        $this->assertSame('en', $response->json('data.ui_actions.0.locale'));
+        $this->assertNotEmpty($response->json('data.ui_actions.0.narrative'));
+    }
+
+    public function test_chat_max_discount_uses_max_discount_tool(): void
+    {
+        $this->actingAsTenantUser($this->admin);
+        $this->putJson('/api/financial-decision/settings', $this->settingsPayload())->assertOk();
+
+        $response = $this->postJson('/api/ai/copilot/chat', [
+            'message' => 'ما هو أقصى خصم مقبول سعر الوحدة 1000000 مقدم 20% لمدة 12 شهر',
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('data.tool', 'max_discount');
+        $this->assertStringContainsString('أقصى خصم مقبول', (string) $response->json('data.message'));
+        $this->assertSame('financial_decision_card', $response->json('data.ui_actions.0.type'));
+        $this->assertStringNotContainsString('discount_exceeds_maximum', (string) $response->getContent());
+    }
+
     public function test_delayed_leads_still_use_original_copilot_when_financial_flag_is_on(): void
     {
         $this->actingAsTenantUser($this->admin);

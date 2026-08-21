@@ -5,23 +5,31 @@ namespace App\Services\FinancialDecision;
 use App\Http\Resources\FinancialEvaluationResource;
 use App\Models\FinancialEvaluation;
 use App\Models\User;
+use App\Services\FinancialDecision\Adapters\FinancialInputAdapter;
 use App\Services\FinancialDecision\Adapters\RealEstateAdapter;
+use App\Services\FinancialDecision\Dto\FinancialAssumptions;
 use App\Services\FinancialDecision\Dto\FinancialDecision;
 use App\Services\FinancialDecision\Dto\FinancialInputSource;
 use App\Services\FinancialDecision\Dto\FinancialMetrics;
+use App\Services\FinancialDecision\Dto\FinancialPolicy;
 use App\Services\FinancialDecision\Dto\StructuredFinancialRequest;
 use Illuminate\Support\Facades\Schema;
 
 final class FinancialDecisionService
 {
+    private const SUPPORTED_MODES = ['evaluate', 'max_discount'];
+
     public function __construct(
         private readonly FinancialRequestParser $parser,
         private readonly FinancialConfigurationStore $config,
-        private readonly RealEstateAdapter $adapter,
+        private readonly FinancialInputAdapter $adapter,
         private readonly CashFlowGenerator $generator,
         private readonly NpvCalculator $npv,
         private readonly MetricsCalculator $metrics,
         private readonly DecisionEngine $decisions,
+        private readonly ReverseCalcEngine $reverse,
+        private readonly FinancialReplyFormatter $replies,
+        private readonly FinancialNarrationService $narration,
     ) {
     }
 
@@ -33,7 +41,7 @@ final class FinancialDecisionService
         $policy = $this->config->policy($tenantId);
         $emptySource = new FinancialInputSource('none', null, 'current', 'low', 'none', []);
 
-        if ($request->mode !== 'evaluate') {
+        if (! in_array($request->mode, self::SUPPORTED_MODES, true)) {
             $decision = $this->decisions->decide(
                 'incomplete',
                 ['not_implemented'],
@@ -55,40 +63,31 @@ final class FinancialDecisionService
             return $this->persistAndPresent($user, $request, $decision, [], $locale);
         }
 
-        $resolved = $this->adapter->resolve($user, $request, $valuationDate);
-        $source = $resolved['source'];
-        if (! $resolved['ok'] || ! $resolved['offer']) {
-            $decision = $this->decisions->decide(
-                (string) ($resolved['status'] ?? 'incomplete'),
-                $resolved['reasons'] ?: ['incomplete_input'],
-                FinancialMetrics::empty(),
-                $assumptions,
-                $policy,
-                $source,
-                []
-            );
-
-            return $this->persistAndPresent($user, $request, $decision, [], $locale, $resolved['evaluable'] ?? null);
+        if ($request->mode === 'max_discount') {
+            return $this->presentMaxDiscount($user, $request, $assumptions, $policy, $valuationDate, $locale);
         }
 
-        $generated = $this->generator->generate(
-            $resolved['offer']->netAmount,
-            $resolved['offer']->startDate,
-            $resolved['allocations']
+        $run = $this->runEvaluate($user, $request, $assumptions, $policy, $valuationDate, true);
+
+        return $this->persistAndPresent(
+            $user,
+            $request,
+            $run['decision'],
+            $run['cash_flows'],
+            $locale,
+            $run['evaluable']
         );
-        if (! $generated['ok']) {
-            $decision = $this->decisions->decide(
-                (string) $generated['status'],
-                [$generated['reason']],
-                FinancialMetrics::empty(),
-                $assumptions,
-                $policy,
-                $source,
-                []
-            );
+    }
 
-            return $this->persistAndPresent($user, $request, $decision, [], $locale, $resolved['evaluable'] ?? null);
-        }
+    private function presentMaxDiscount(
+        User $user,
+        StructuredFinancialRequest $request,
+        FinancialAssumptions $assumptions,
+        FinancialPolicy $policy,
+        string $valuationDate,
+        string $locale,
+    ): array {
+        $emptySource = new FinancialInputSource('none', null, 'current', 'low', 'none', []);
 
         if (! $assumptions->isExplicitlyConfigured || $assumptions->discountRate === null) {
             $decision = $this->decisions->decide(
@@ -97,11 +96,11 @@ final class FinancialDecisionService
                 FinancialMetrics::empty(),
                 $assumptions,
                 $policy,
-                $source,
+                $emptySource,
                 []
             );
 
-            return $this->persistAndPresent($user, $request, $decision, array_map(fn ($flow) => $flow->toArray(), $generated['cash_flows']), $locale, $resolved['evaluable'] ?? null);
+            return $this->persistAndPresent($user, $request, $decision, [], $locale);
         }
 
         if (! $policy->isExplicitlyConfigured || $policy->minimumNpvRatio === null) {
@@ -111,32 +110,154 @@ final class FinancialDecisionService
                 FinancialMetrics::empty(),
                 $assumptions,
                 $policy,
-                $source,
+                $emptySource,
                 []
             );
 
-            return $this->persistAndPresent($user, $request, $decision, array_map(fn ($flow) => $flow->toArray(), $generated['cash_flows']), $locale, $resolved['evaluable'] ?? null);
+            return $this->persistAndPresent($user, $request, $decision, [], $locale);
+        }
+
+        $recommendations = $this->reverse->recommend($user, $request, $assumptions, $policy, $valuationDate);
+        $maxApproved = $this->recommendationValue($recommendations, 'max_discount_percentage');
+
+        if ($maxApproved === null) {
+            $decision = $this->decisions->decide(
+                'incomplete',
+                ['reverse_calc_unavailable'],
+                FinancialMetrics::empty(),
+                $assumptions,
+                $policy,
+                $emptySource,
+                []
+            );
+
+            return $this->persistAndPresent($user, $request, $decision->withRecommendations($recommendations), [], $locale);
+        }
+
+        $scenarioRequest = $this->parser->fromArray(array_merge($request->toArray(), [
+            'discount_percentage' => $maxApproved,
+            'discount_amount' => null,
+            'mode' => 'evaluate',
+            'intent' => 'evaluate',
+        ]));
+
+        $run = $this->runEvaluate($user, $scenarioRequest, $assumptions, $policy, $valuationDate, false);
+        $decision = $run['decision']->withRecommendations($recommendations);
+
+        return $this->persistAndPresent($user, $request, $decision, $run['cash_flows'], $locale, $run['evaluable']);
+    }
+
+    /**
+     * @return array{decision:FinancialDecision,cash_flows:list<array<string,mixed>>,evaluable:?array{type:string,id:int}}
+     */
+    private function runEvaluate(
+        User $user,
+        StructuredFinancialRequest $request,
+        FinancialAssumptions $assumptions,
+        FinancialPolicy $policy,
+        string $valuationDate,
+        bool $attachReverseOnReject,
+    ): array {
+        $emptySource = new FinancialInputSource('none', null, 'current', 'low', 'none', []);
+
+        $resolved = $this->adapter->resolve($user, $request, $valuationDate);
+        $source = $resolved['source'];
+        if (! $resolved['ok'] || ! $resolved['offer']) {
+            return [
+                'decision' => $this->decisions->decide(
+                    (string) ($resolved['status'] ?? 'incomplete'),
+                    $resolved['reasons'] ?: ['incomplete_input'],
+                    FinancialMetrics::empty(),
+                    $assumptions,
+                    $policy,
+                    $source,
+                    []
+                ),
+                'cash_flows' => [],
+                'evaluable' => $resolved['evaluable'] ?? null,
+            ];
+        }
+
+        $generated = $this->generator->generate(
+            $resolved['offer']->netAmount,
+            $resolved['offer']->startDate,
+            $resolved['allocations']
+        );
+        if (! $generated['ok']) {
+            return [
+                'decision' => $this->decisions->decide(
+                    (string) $generated['status'],
+                    [$generated['reason']],
+                    FinancialMetrics::empty(),
+                    $assumptions,
+                    $policy,
+                    $source,
+                    []
+                ),
+                'cash_flows' => [],
+                'evaluable' => $resolved['evaluable'] ?? null,
+            ];
+        }
+
+        $cashFlows = array_map(fn ($flow) => $flow->toArray(), $generated['cash_flows']);
+
+        if (! $assumptions->isExplicitlyConfigured || $assumptions->discountRate === null) {
+            return [
+                'decision' => $this->decisions->decide(
+                    'incomplete',
+                    ['financial_assumptions_missing'],
+                    FinancialMetrics::empty(),
+                    $assumptions,
+                    $policy,
+                    $source,
+                    []
+                ),
+                'cash_flows' => $cashFlows,
+                'evaluable' => $resolved['evaluable'] ?? null,
+            ];
+        }
+
+        if (! $policy->isExplicitlyConfigured || $policy->minimumNpvRatio === null) {
+            return [
+                'decision' => $this->decisions->decide(
+                    'incomplete',
+                    ['financial_policy_missing'],
+                    FinancialMetrics::empty(),
+                    $assumptions,
+                    $policy,
+                    $source,
+                    []
+                ),
+                'cash_flows' => $cashFlows,
+                'evaluable' => $resolved['evaluable'] ?? null,
+            ];
         }
 
         $npv = $this->npv->calculate($generated['cash_flows'], $assumptions);
         try {
             $metrics = $this->metrics->calculate($resolved['offer'], $generated['cash_flows'], $npv->npv, $assumptions->valuationDate);
         } catch (\Throwable) {
-            $decision = $this->decisions->decide('invalid', ['invalid_input'], FinancialMetrics::empty(), $assumptions, $policy, $source, $npv->trace);
-
-            return $this->persistAndPresent($user, $request, $decision, array_map(fn ($flow) => $flow->toArray(), $generated['cash_flows']), $locale, $resolved['evaluable'] ?? null);
+            return [
+                'decision' => $this->decisions->decide('invalid', ['invalid_input'], FinancialMetrics::empty(), $assumptions, $policy, $source, $npv->trace),
+                'cash_flows' => $cashFlows,
+                'evaluable' => $resolved['evaluable'] ?? null,
+            ];
         }
 
         $decision = $this->decisions->decide('evaluated', [], $metrics, $assumptions, $policy, $source, $npv->trace);
 
-        return $this->persistAndPresent(
-            $user,
-            $request,
-            $decision,
-            array_map(fn ($flow) => $flow->toArray(), $generated['cash_flows']),
-            $locale,
-            $resolved['evaluable'] ?? null
-        );
+        if ($attachReverseOnReject && in_array($decision->decision, ['rejected', 'manager_approval_required'], true)) {
+            $recs = $this->reverse->recommend($user, $request, $assumptions, $policy, $valuationDate);
+            if ($recs !== []) {
+                $decision = $decision->withRecommendations($recs);
+            }
+        }
+
+        return [
+            'decision' => $decision,
+            'cash_flows' => $cashFlows,
+            'evaluable' => $resolved['evaluable'] ?? null,
+        ];
     }
 
     /**
@@ -189,6 +310,7 @@ final class FinancialDecisionService
                     'decision' => $decision->decision,
                     'reasons' => $decision->reasons,
                     'warnings' => $decision->warnings,
+                    'recommendations' => $decision->recommendations,
                 ],
                 'assumptions_snapshot' => $decision->assumptionsSnapshot,
                 'input_source' => $decision->inputSource,
@@ -201,42 +323,22 @@ final class FinancialDecisionService
             $evaluationId = $row->id;
         }
 
-        $message = $this->composeMessage($decision, $locale);
+        $factsMessage = $this->replies->composeMessage($decision, $locale, $request->mode);
+        $message = $this->narration->narrate($decision, $locale, $request->mode, $factsMessage);
+        $card = $this->replies->cardAction($decision, $locale, $request->mode);
+        $card['narrative'] = $message;
+
         $public = (new FinancialEvaluationResource($decision, $cashFlows, $request->toArray(), $evaluationId, $locale, $message))->toPublicArray();
+        $public['ui_actions'] = [$card];
 
         return $public;
     }
 
-    private function composeMessage(FinancialDecision $decision, string $locale): string
+    /**
+     * @param  list<array<string,mixed>>  $recommendations
+     */
+    private function recommendationValue(array $recommendations, string $code): ?string
     {
-        $metrics = $decision->metrics->toArray();
-        $rate = $decision->assumptionsSnapshot['discount_rate'] ?? null;
-        $ar = $locale === 'ar';
-
-        $decisionLabel = match ($decision->decision) {
-            'approved' => $ar ? 'مقبول' : 'Approved',
-            'approved_with_warning' => $ar ? 'مقبول مع تحذير' : 'Approved with warning',
-            'manager_approval_required' => $ar ? 'يحتاج موافقة مدير' : 'Manager approval required',
-            'rejected' => $ar ? 'مرفوض' : 'Rejected',
-            'invalid' => $ar ? 'بيانات غير صالحة' : 'Invalid input',
-            default => $ar ? 'ناقص بيانات' : 'Incomplete',
-        };
-
-        $reasonText = implode(', ', $decision->reasons);
-        $lines = [];
-        $lines[] = $ar ? "القرار: {$decisionLabel}" : "Decision: {$decisionLabel}";
-        if ($reasonText !== '') {
-            $lines[] = $ar ? "السبب: {$reasonText}" : "Reasons: {$reasonText}";
-        }
-        $lines[] = ($ar ? 'صافي العرض: ' : 'Net offer: ').($metrics['net_amount'] ?? '0');
-        $lines[] = ($ar ? 'الخصم: ' : 'Discount: ').($metrics['discount_percentage'] ?? '0').'%';
-        $lines[] = 'NPV: '.($metrics['npv'] ?? '0');
-        $lines[] = ($ar ? 'نسبة NPV إلى صافي العرض: ' : 'NPV ratio (NPV / net offer): ').($metrics['npv_ratio'] ?? '0');
-        $lines[] = ($ar ? 'التحصيل الأولي: ' : 'Initial collection: ').($metrics['initial_collection_percentage'] ?? '0').'%';
-        if ($rate !== null && $rate !== '') {
-            $lines[] = ($ar ? 'معدل الخصم المستخدم: ' : 'Discount rate used: ').$rate;
-        }
-
-        return implode("\n", $lines);
+        return $this->replies->recommendationValue($recommendations, $code);
     }
 }

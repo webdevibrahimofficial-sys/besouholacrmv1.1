@@ -251,6 +251,7 @@ class AiSystemCatalog
             'description' => 'Customer listing and status report.',
             'aliases' => ['customer', 'customers', 'عميل', 'عملاء', 'كستمر'],
             'filters' => ['date_from', 'date_to'],
+            'requires_company_type' => 'general',
         ],
         [
             'key' => 'targets_revenue',
@@ -291,8 +292,18 @@ class AiSystemCatalog
 
     public function forUser(User $user): array
     {
+        $tenant = app()->bound('tenant') ? app('tenant') : null;
+        if (! $tenant && $user->tenant_id) {
+            $tenant = Tenant::query()->find($user->tenant_id);
+        }
+        $companyType = strtolower(trim((string) ($tenant?->company_type ?? '')));
+        $isRealEstate = $companyType !== '' && str_contains($companyType, 'real');
+
         $reports = [];
         foreach (self::REPORTS as $report) {
+            if (($report['requires_company_type'] ?? null) === 'general' && $isRealEstate) {
+                continue;
+            }
             $canShow = $this->canShowReport($user, $report['permission']);
             $canExport = $this->canExportReport($user, $report['permission']);
             if (! $canShow) {
@@ -553,6 +564,10 @@ class AiSystemCatalog
 
     public function canShowReport(User $user, string $reportPermissionName): bool
     {
+        if ($reportPermissionName === 'Customers Report' && $this->isRealEstateTenant($user)) {
+            return false;
+        }
+
         if ($this->isAdminRole($user)) {
             return true;
         }
@@ -583,6 +598,10 @@ class AiSystemCatalog
 
     public function canExportReport(User $user, string $reportPermissionName): bool
     {
+        if ($reportPermissionName === 'Customers Report' && $this->isRealEstateTenant($user)) {
+            return false;
+        }
+
         if ($this->isAdminRole($user)) {
             return true;
         }
@@ -711,6 +730,17 @@ class AiSystemCatalog
         } catch (\Throwable) {
             return true;
         }
+    }
+
+    protected function isRealEstateTenant(User $user): bool
+    {
+        $tenant = app()->bound('tenant') ? app('tenant') : null;
+        if (! $tenant && $user->tenant_id) {
+            $tenant = Tenant::query()->find($user->tenant_id);
+        }
+        $companyType = strtolower(trim((string) ($tenant?->company_type ?? '')));
+
+        return $companyType !== '' && str_contains($companyType, 'real');
     }
 
     protected function isAdminRole(User $user): bool

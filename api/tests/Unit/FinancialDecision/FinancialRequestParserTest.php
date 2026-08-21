@@ -105,4 +105,16 @@ TEXT;
         $this->assertSame('approved', $payload['decision']);
         $this->assertSame('low', $payload['input_source']['confidence']);
     }
+
+    public function test_parser_detects_max_discount_mode_and_gross_amount(): void
+    {
+        $parser = new FinancialRequestParser();
+        $parsed = $parser->parseWithPhp('ما هو أقصى خصم مقبول سعر الوحدة 1000000 مقدم 20% لمدة 12 شهر');
+
+        $this->assertSame('max_discount', $parsed['mode']);
+        $this->assertSame('max_discount', $parsed['intent']);
+        $this->assertSame('1000000', $parsed['gross_amount']);
+        $this->assertSame('20', $parsed['down_payment_percentage']);
+        $this->assertSame(12, $parsed['duration_months']);
+    }
 }

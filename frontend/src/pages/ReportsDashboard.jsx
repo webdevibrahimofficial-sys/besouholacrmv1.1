@@ -8,6 +8,7 @@ import {
 import { api } from '../utils/api'
 import { useTheme } from '@shared/context/ThemeProvider'
 import { useAppState } from '@shared/context/AppStateProvider'
+import { isRealEstateCompanyType, resolveTenantCompanyTypeSources } from '@shared/utils/tenantCompanyType'
 
   const REPORT_PERMISSION_MODULE_BY_KEY = {
   leads_pipeline: 'Leads Pipeline',
@@ -30,8 +31,9 @@ import { useAppState } from '@shared/context/AppStateProvider'
 const ReportsDashboard = () => {
   const { t, i18n } = useTranslation()
   const { theme } = useTheme()
-  const { user, activeModules } = useAppState()
+  const { user, activeModules, company, crmSettings } = useAppState()
   const isLight = theme === 'light'
+  const isRealEstateTenant = isRealEstateCompanyType(...resolveTenantCompanyTypeSources(company, crmSettings))
   const isRTL = String(i18n.language || '').toLowerCase().startsWith('ar')
   const localize = (ar, en) => (isRTL ? ar : en)
   const [stats, setStats] = useState(null)
@@ -266,9 +268,10 @@ const ReportsDashboard = () => {
 
   const visibleReports = reports.filter((report) => {
     if (!hasReportsAccess) return false
+    if (report.key === 'customers_report' && isRealEstateTenant) return false
     if (report.key === 'sales_to_telesales_transfers' && !isTelesalesModuleEnabled) return false
 
-    // Admin can always see all cards.
+    // Admin can always see all cards (except General-only reports filtered above).
     if (isAdminRole) return true
 
     // Legacy users (created before report-level matrix) keep seeing all report cards

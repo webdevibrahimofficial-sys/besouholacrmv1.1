@@ -13,7 +13,7 @@ use App\Services\FinancialDecision\Money;
 use App\Traits\UserHierarchyTrait;
 use Illuminate\Support\Facades\Schema;
 
-final class RealEstateAdapter
+final class RealEstateAdapter implements FinancialInputAdapter
 {
     use UserHierarchyTrait;
 

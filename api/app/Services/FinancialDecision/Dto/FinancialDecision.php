@@ -22,4 +22,21 @@ final class FinancialDecision
         public readonly array $recommendations = [],
     ) {
     }
+
+    public function withRecommendations(array $recommendations): self
+    {
+        return new self(
+            decision: $this->decision,
+            status: $this->status,
+            reasons: $this->reasons,
+            warnings: $this->warnings,
+            metrics: $this->metrics,
+            assumptionsSnapshot: $this->assumptionsSnapshot,
+            policySnapshot: $this->policySnapshot,
+            inputSource: $this->inputSource,
+            calculationTrace: $this->calculationTrace,
+            engineVersion: $this->engineVersion,
+            recommendations: $recommendations,
+        );
+    }
 }

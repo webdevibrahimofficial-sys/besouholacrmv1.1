@@ -501,14 +501,25 @@ class CustomerController extends Controller
 
     public function report(Request $request)
     {
-        $perPage = (int) $request->input('per_page', 100);
-        if ($perPage < 1) {
-            $perPage = 100;
-        }
-
         $user = $request->user();
         if (!$user) {
             return response()->json(['message' => 'Unauthorized'], 401);
+        }
+
+        $tenant = app()->bound('tenant') ? app('tenant') : null;
+        if (!$tenant && $user->tenant_id) {
+            $tenant = \App\Models\Tenant::query()->find($user->tenant_id);
+        }
+        $companyType = strtolower(trim((string) ($tenant?->company_type ?? '')));
+        if ($companyType !== '' && str_contains($companyType, 'real')) {
+            return response()->json([
+                'message' => 'Customers Report is only available for General tenants',
+            ], 403);
+        }
+
+        $perPage = (int) $request->input('per_page', 100);
+        if ($perPage < 1) {
+            $perPage = 100;
         }
 
         $query = Customer::with(['assignee.manager', 'customFieldValues.field'])

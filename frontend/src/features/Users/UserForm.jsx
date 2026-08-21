@@ -329,7 +329,11 @@ function CommissionTiersEditor({
   );
 }
 
-const buildSelectAllPermissions = (filterInventoryPermsByTenantType, activeModules = []) => {
+const buildSelectAllPermissions = (
+  filterInventoryPermsByTenantType,
+  activeModules = [],
+  { isGeneralTenant = true } = {}
+) => {
   const enabledModules = Array.isArray(activeModules) ? activeModules : []
   const telesalesEnabled = enabledModules.includes('telesales')
   const perms = {};
@@ -343,7 +347,10 @@ const buildSelectAllPermissions = (filterInventoryPermsByTenantType, activeModul
       perms[group] = [...filtered];
     }
   });
-  perms.Reports = REPORT_MODULES.flatMap((module) => [
+  const reportModules = isGeneralTenant
+    ? REPORT_MODULES
+    : REPORT_MODULES.filter((module) => module !== 'Customers Report');
+  perms.Reports = reportModules.flatMap((module) => [
     `${module}_show`,
     `${module}_export`,
   ]);
@@ -750,12 +757,17 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
 
   const reportPerms = customPerms['Reports'] || [];
   const visibleReportModules = useMemo(() => {
+    const tenantScopedModules = isGeneralTenant
+      ? REPORT_MODULES
+      : REPORT_MODULES.filter((module) => module !== 'Customers Report');
     if (normalizeRoleValue(form.role) === 'accountant') {
-      return ['Reservations Report', 'Closed Deals', 'Targets & Revenue'];
+      return ['Reservations Report', 'Closed Deals', 'Targets & Revenue'].filter((module) =>
+        tenantScopedModules.includes(module)
+      );
     }
-    if (!isSalesPersonRole(form.role)) return REPORT_MODULES;
-    return REPORT_MODULES.filter((module) => !['Customers Report', 'Exports Report'].includes(module));
-  }, [form.role]);
+    if (!isSalesPersonRole(form.role)) return tenantScopedModules;
+    return tenantScopedModules.filter((module) => !['Customers Report', 'Exports Report'].includes(module));
+  }, [form.role, isGeneralTenant]);
   const allReportsShowSelected = visibleReportModules.every(module => reportPerms.includes(`${module}_show`));
   const allReportsExportSelected = visibleReportModules.every(module => reportPerms.includes(`${module}_export`));
 
@@ -770,14 +782,14 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
       '';
 
     if (isAdminRole(role) && (user?.is_primary_admin || Object.keys(modulePerms).length === 0)) {
-      setCustomPerms(buildSelectAllPermissions(filterInventoryPermsByTenantType, activeModules));
+      setCustomPerms(buildSelectAllPermissions(filterInventoryPermsByTenantType, activeModules, { isGeneralTenant }));
       return;
     }
 
     if (modulePerms && Object.keys(modulePerms).length > 0) {
       setCustomPerms(modulePerms);
     }
-  }, [isEdit, user, filterInventoryPermsByTenantType]);
+  }, [isEdit, user, filterInventoryPermsByTenantType, activeModules, isGeneralTenant]);
 
   useEffect(() => {
     const modulePerms = isEdit ? (user?.meta_data?.module_permissions || user?.module_permissions || {}) : {};
@@ -918,11 +930,22 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
     } else if (form.role === 'Custom') {
       setCustomPerms({})
     } else if (isAdminRole(form.role)) {
-      setCustomPerms(buildSelectAllPermissions(filterInventoryPermsByTenantType, activeModules))
+      setCustomPerms(buildSelectAllPermissions(filterInventoryPermsByTenantType, activeModules, { isGeneralTenant }))
     } else {
       setCustomPerms({})
     }
-  }, [form.role, filterInventoryPermsByTenantType, activeModules, telesalesModuleEnabled])
+  }, [form.role, filterInventoryPermsByTenantType, activeModules, telesalesModuleEnabled, isGeneralTenant])
+
+  useEffect(() => {
+    if (isGeneralTenant) return
+    setCustomPerms((prev) => {
+      const reports = Array.isArray(prev?.Reports) ? prev.Reports : null
+      if (!reports?.length) return prev
+      const nextReports = reports.filter((perm) => !String(perm).startsWith('Customers Report'))
+      if (nextReports.length === reports.length) return prev
+      return { ...prev, Reports: nextReports }
+    })
+  }, [isGeneralTenant])
 
   useEffect(() => {
     if (telesalesModuleEnabled) return
@@ -1228,6 +1251,7 @@ export default function UserManagementUserCreate({ onClose, onSuccess, user }) {
           ? filterInventoryPermsByTenantType(roleFilteredAllowed)
           : roleFilteredAllowed;
         (perms || []).forEach((perm) => {
+          if (!isGeneralTenant && group === 'Reports' && String(perm).startsWith('Customers Report')) return;
           if (allowed && !allowed.includes(perm)) return;
           if (isSalesPersonRole(form.role) && group === 'Leads' && perm === 'addAction') return;
           formData.append(`permissions[${group}][]`, perm);

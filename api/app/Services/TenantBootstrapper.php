@@ -104,7 +104,10 @@ class TenantBootstrapper
             $user->forceFill(['job_title' => 'Tenant Admin'])->save();
         }
 
-        app(TenantAdminModulePermissionService::class)->persistIfIncomplete($user->fresh() ?? $user);
+        app(TenantAdminModulePermissionService::class)->persistIfIncomplete(
+            $user->fresh() ?? $user,
+            $tenant->company_type
+        );
 
         $user->unsetRelation('roles');
     }

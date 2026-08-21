@@ -1990,11 +1990,11 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
 
   // Wrapper classes for overlay vs inline modes
   const overlayWrapper = inline
-    ? 'relative p-0'
-    : 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[9999] p-0 sm:p-6';
+    ? 'relative p-0 w-full min-w-0'
+    : 'fixed inset-0 bg-black/60 flex items-end sm:items-center justify-center z-[10050] p-0 sm:p-4';
   const containerClasses = inline
-    ? `${isLight ? 'bg-white text-slate-800' : 'bg-gray-800 text-white'} sm:rounded-lg shadow-xl w-full h-auto`
-    : `${isLight ? 'bg-white text-slate-800' : 'bg-gray-800 text-white'} sm:rounded-lg shadow-xl w-full sm:max-w-2xl max-h-[85vh] h-auto overflow-y-auto m-0 sm:m-4`;
+    ? `${isLight ? 'bg-white text-slate-800' : 'bg-gray-800 text-white'} sm:rounded-lg shadow-xl w-full min-w-0 max-h-[calc(95vh-1rem)] overflow-y-auto overscroll-contain`
+    : `${isLight ? 'bg-white text-slate-800' : 'bg-gray-800 text-white'} rounded-t-2xl sm:rounded-lg shadow-xl w-full max-w-[100vw] sm:max-w-2xl max-h-[100dvh] sm:max-h-[85vh] h-[100dvh] sm:h-auto overflow-x-hidden overflow-y-auto overscroll-contain m-0`;
 
   useEffect(() => {
     if (!inline && isOpen) {
@@ -2019,27 +2019,25 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
   const content = (
     <div className={overlayWrapper}>
       <div className={containerClasses}>
-        {/* Header */}
-        <div className={`flex items-center justify-between p-8 border-b ${isLight ? 'border-gray-200' : 'border-gray-700'}`}>
-          <div className="flex items-center gap-3">
-            <h2 className={`text-xl font-semibold ${isLight ? 'text-slate-900' : 'text-white'}`}>
+        {/* Header — sticky so close stays visible on small screens */}
+        <div className={`sticky top-0 z-20 flex items-center justify-between gap-3 px-4 py-3 sm:p-6 border-b ${isLight ? 'border-gray-200 bg-white' : 'border-gray-700 bg-gray-800'}`}>
+          <div className="min-w-0 flex items-center gap-2 sm:gap-3">
+            <h2 className={`truncate text-lg sm:text-xl font-semibold ${isLight ? 'text-slate-900' : 'text-white'}`}>
               {isArabic ? 'إضافة أكشن' : 'Add Action'}
             </h2>
           </div>
-          {!inline && (
-            <div className="flex items-center gap-3">
-              <button
-                onClick={onClose}
-                className="btn btn-sm btn-circle btn-ghost text-red-500"
-              >
-                <FaTimes size={20} />
-              </button>
-            </div>
-          )}
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label={isArabic ? 'إغلاق' : 'Close'}
+            className="btn-icon shrink-0 text-red-500 hover:bg-red-500/10"
+          >
+            <FaTimes size={18} />
+          </button>
         </div>
 
         {/* Subtitle */}
-        <div className="px-8 pt-6">
+        <div className="px-4 pt-4 sm:px-8 sm:pt-6">
           <p className={`${isLight ? 'text-slate-600' : 'text-gray-400'} text-sm`}>
             {isArabic
               ? (actionData.nextAction === 'meeting' ? 'اختر تفاصيل الاجتماع' : 'اختر نوع الأكشن وحدد التفاصيل')
@@ -2048,7 +2046,7 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
         </div>
 
         {/* Form */}
-        <form onSubmit={handleSubmit} className="p-8 space-y-6">
+        <form onSubmit={handleSubmit} className="p-4 sm:p-8 space-y-4 sm:space-y-6">
           {!canAddAction ? (
             <div className="p-6 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl text-center">
               <FaTimes className="mx-auto text-red-500 mb-3 text-2xl" />
@@ -2384,19 +2382,19 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
           {actionData.nextAction === 'proposal' && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">{isArabic ? 'قيمة العرض' : 'Proposal Amount'}</label>
+                <label className={`block text-sm font-medium mb-2 ${isLight ? 'text-slate-900' : 'text-gray-300'}`}>{isArabic ? 'قيمة العرض' : 'Proposal Amount'}</label>
                 <input name="proposalAmount" type="number" value={actionData.proposalAmount} onChange={handleInputChange} {...numericFieldProps} className={`${isLight ? 'w-full px-3 py-2 bg-white border border-gray-300 rounded-md text-slate-900' : 'w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white'}`} />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">{isArabic ? 'الخصم %' : 'Discount %'}</label>
+                <label className={`block text-sm font-medium mb-2 ${isLight ? 'text-slate-900' : 'text-gray-300'}`}>{isArabic ? 'الخصم %' : 'Discount %'}</label>
                 <input name="proposalDiscount" type="number" value={actionData.proposalDiscount} onChange={handleInputChange} {...numericFieldProps} className={`${isLight ? 'w-full px-3 py-2 bg-white border border-gray-300 rounded-md text-slate-900' : 'w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white'}`} />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">{isArabic ? 'مدة الصلاحية (أيام)' : 'Validity Days'}</label>
+                <label className={`block text-sm font-medium mb-2 ${isLight ? 'text-slate-900' : 'text-gray-300'}`}>{isArabic ? 'مدة الصلاحية (أيام)' : 'Validity Days'}</label>
                 <input name="proposalValidityDays" type="number" value={actionData.proposalValidityDays} onChange={handleInputChange} {...numericFieldProps} className={`${isLight ? 'w-full px-3 py-2 bg-white border border-gray-300 rounded-md text-slate-900' : 'w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white'}`} />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">{isArabic ? 'مرفق' : 'Attachment'}</label>
+                <label className={`block text-sm font-medium mb-2 ${isLight ? 'text-slate-900' : 'text-gray-300'}`}>{isArabic ? 'مرفق' : 'Attachment'}</label>
                 <input name="proposalAttachment" type="file" onChange={handleInputChange} className={`${isLight ? 'w-full px-3 py-2 bg-white border border-gray-300 rounded-md text-slate-900' : 'w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white'}`} />
               </div>
             </div>
@@ -2759,7 +2757,7 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
           {actionData.nextAction === 'rent' && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">{isArabic ? 'الوحدة' : 'Unit'}</label>
+                <label className={`block text-sm font-medium mb-2 ${isLight ? 'text-slate-900' : 'text-gray-300'}`}>{isArabic ? 'الوحدة' : 'Unit'}</label>
                 <div className="relative">
                   <select
                     name="rentUnit"
@@ -2776,19 +2774,19 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">{isArabic ? 'قيمة الإيجار' : 'Rent Amount'}</label>
+                <label className={`block text-sm font-medium mb-2 ${isLight ? 'text-slate-900' : 'text-gray-300'}`}>{isArabic ? 'قيمة الإيجار' : 'Rent Amount'}</label>
                 <input name="rentAmount" type="number" value={actionData.rentAmount} onChange={handleInputChange} {...numericFieldProps} className={`${isLight ? 'w-full px-3 py-2 bg-white border border-gray-300 rounded-md text-slate-900' : 'w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white'}`} />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">{isArabic ? 'بداية الإيجار' : 'Rent Start'}</label>
+                <label className={`block text-sm font-medium mb-2 ${isLight ? 'text-slate-900' : 'text-gray-300'}`}>{isArabic ? 'بداية الإيجار' : 'Rent Start'}</label>
                 <input name="rentStart" type="date" value={actionData.rentStart} onChange={handleInputChange} className={`${isLight ? 'w-full px-3 py-2 bg-white border border-gray-300 rounded-md text-slate-900' : 'w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white'}`} />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">{isArabic ? 'نهاية الإيجار' : 'Rent End'}</label>
+                <label className={`block text-sm font-medium mb-2 ${isLight ? 'text-slate-900' : 'text-gray-300'}`}>{isArabic ? 'نهاية الإيجار' : 'Rent End'}</label>
                 <input name="rentEnd" type="date" value={actionData.rentEnd} onChange={handleInputChange} className={`${isLight ? 'w-full px-3 py-2 bg-white border border-gray-300 rounded-md text-slate-900' : 'w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white'}`} />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">{isArabic ? 'مرفق' : 'Attachment'}</label>
+                <label className={`block text-sm font-medium mb-2 ${isLight ? 'text-slate-900' : 'text-gray-300'}`}>{isArabic ? 'مرفق' : 'Attachment'}</label>
                 <input name="rentAttachment" type="file" onChange={handleInputChange} className={`${isLight ? 'w-full px-3 py-2 bg-white border border-gray-300 rounded-md text-slate-900' : 'w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white'}`} />
               </div>
             </div>
@@ -2968,7 +2966,7 @@ const AddActionModal = ({ isOpen, onClose, onSave, lead, inline = false, initial
           )}
 
           {/* Buttons */}
-          <div className="flex justify-between gap-2 pt-4">
+          <div className={`sticky bottom-0 z-10 -mx-4 mt-2 flex justify-between gap-2 border-t px-4 py-3 sm:static sm:mx-0 sm:border-0 sm:px-0 sm:py-0 sm:pt-4 ${isLight ? 'border-gray-200 bg-white' : 'border-gray-700 bg-gray-800'}`}>
             <button
               type="button"
               onClick={onClose}

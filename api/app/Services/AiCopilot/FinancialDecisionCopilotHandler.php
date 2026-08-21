@@ -41,13 +41,14 @@ final class FinancialDecisionCopilotHandler
         }
 
         $result = $this->decisions->evaluate($user, $structured, $locale);
+        $tool = ($structured->mode === 'max_discount') ? 'max_discount' : 'evaluate_financial_offer';
 
         return [
             'conversation_id' => $conversationId,
             'message' => (string) ($result['message'] ?? ''),
-            'tool' => 'evaluate_financial_offer',
+            'tool' => $tool,
             'tool_result' => FinancialEvaluationResource::stripTrace($result),
-            'ui_actions' => [],
+            'ui_actions' => is_array($result['ui_actions'] ?? null) ? $result['ui_actions'] : [],
             'locale' => $locale,
         ];
     }
@@ -61,7 +62,7 @@ final class FinancialDecisionCopilotHandler
         }
 
         return (bool) preg_match(
-            '/(العرض|هل العرض|مقبول|خصم|مقدم|تقسيط|خطة دفع|قسط|npv|evaluate offer|down\s*payment|discount|payment plan|afford)/u',
+            '/(العرض|هل العرض|مقبول|خصم|مقدم|تقسيط|خطة دفع|قسط|npv|evaluate offer|down\s*payment|discount|payment plan|afford|أقصى\s*خصم|اكبر\s*خصم|أكبر\s*خصم|max(?:imum)?\s*discount)/u',
             $text
         );
     }

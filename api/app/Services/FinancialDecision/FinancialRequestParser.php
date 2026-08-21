@@ -36,8 +36,19 @@ final class FinancialRequestParser
     {
         $parsed = ['intent' => 'evaluate', 'mode' => 'evaluate'];
 
+        if (preg_match('/(أقصى\s*خصم|اكبر\s*خصم|أكبر\s*خصم|max(?:imum)?\s*discount|highest\s*discount)/iu', $message)) {
+            $parsed['intent'] = 'max_discount';
+            $parsed['mode'] = 'max_discount';
+        }
+
         if (preg_match('/(?:\blead\s*#?\s*|#\s*|ليد\s*(?:رقم|#)?\s*)(\d+)/iu', $message, $match)) {
             $parsed['lead_id'] = (int) $match[1];
+        }
+
+        if (preg_match('/(?:سعر(?:\s*الوحدة)?|gross(?:\s*amount)?|total(?:\s*price)?|بمبلغ|مبلغ)\s*[:=]?\s*([\d.,]+)/iu', $message, $match)
+            || preg_match('/([\d.,]+)\s*(?:جنيه|EGP|egp)/iu', $message, $match)
+        ) {
+            $parsed['gross_amount'] = str_replace([',', ' '], '', $match[1]);
         }
 
         if (preg_match('/(?:خصم|discount)\s*(?:حوالي|about)?\s*(\d+(?:[.,]\d+)?)\s*%/iu', $message, $match)
@@ -74,6 +85,8 @@ final class FinancialRequestParser
         $prompt = <<<PROMPT
 Extract a commercial-offer evaluation request into JSON.
 Return ONLY JSON with this whitelist of keys: {$allowed}
+Set mode to "max_discount" and intent to "max_discount" when the user asks for the maximum acceptable discount.
+Otherwise mode and intent are "evaluate".
 Do not compute payments, NPV, or a decision.
 Do not invent numbers the user did not state.
 Missing values must be null.
@@ -138,9 +151,14 @@ PROMPT;
         if ($mode === '') {
             $mode = 'evaluate';
         }
+        $intent = strtolower((string) ($payload['intent'] ?? 'evaluate')) ?: 'evaluate';
+        if ($intent === 'max_discount' || $mode === 'max_discount') {
+            $intent = 'max_discount';
+            $mode = 'max_discount';
+        }
 
         return new StructuredFinancialRequest(
-            intent: (string) ($payload['intent'] ?? 'evaluate') ?: 'evaluate',
+            intent: $intent,
             leadId: $this->nullableInt($payload['lead_id'] ?? null),
             unitId: $this->nullableInt($payload['unit_id'] ?? null),
             quoteId: $this->nullableInt($payload['quote_id'] ?? null),

@@ -631,8 +631,13 @@ class AuthController extends Controller
         }
 
         if ($this->tenantAdminPermissions->isTenantAdminLike($user, (bool) $data['is_primary_admin'])) {
+            $tenant = app()->bound('tenant') ? app('tenant') : null;
+            if (!$tenant && $user->tenant_id) {
+                $tenant = Tenant::query()->find($user->tenant_id);
+            }
             $data['meta_data'] = $this->tenantAdminPermissions->expandMetaData(
-                is_array($data['meta_data'] ?? null) ? $data['meta_data'] : []
+                is_array($data['meta_data'] ?? null) ? $data['meta_data'] : [],
+                $tenant?->company_type
             );
         }
 

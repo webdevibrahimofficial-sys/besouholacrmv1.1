@@ -83,6 +83,11 @@ export default function CustomersReport() {
   const formatMoney = (value) => `${Number(value || 0).toLocaleString()} ${currencyCode}`
   const isRealEstate = isRealEstateCompanyType(...resolveTenantCompanyTypeSources(company, crmSettings))
 
+  useEffect(() => {
+    if (!isRealEstate) return
+    navigate('/reports', { replace: true })
+  }, [isRealEstate, navigate])
+
   const [customers, setCustomers] = useState([])
   const [quotationTotals, setQuotationTotals] = useState(null)
   const [orderTotals, setOrderTotals] = useState(null)

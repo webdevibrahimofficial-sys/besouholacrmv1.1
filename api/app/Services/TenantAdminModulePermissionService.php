@@ -19,7 +19,7 @@ class TenantAdminModulePermissionService
      *
      * @return array<string, list<string>>
      */
-    public function catalog(): array
+    public function catalog(?string $companyType = null): array
     {
         $reportModules = [
             'Leads Pipeline',
@@ -37,13 +37,20 @@ class TenantAdminModulePermissionService
             'Exports Report',
         ];
 
+        if ($this->isRealEstateCompanyType($companyType)) {
+            $reportModules = array_values(array_filter(
+                $reportModules,
+                fn ($module) => $module !== 'Customers Report'
+            ));
+        }
+
         $reportPerms = [];
         foreach ($reportModules as $module) {
             $reportPerms[] = $module.'_show';
             $reportPerms[] = $module.'_export';
         }
 
-        return [
+        $catalog = [
             'Leads' => [
                 'addLead',
                 'showCreator',
@@ -140,6 +147,12 @@ class TenantAdminModulePermissionService
             ],
             'Reports' => $reportPerms,
         ];
+
+        if ($this->isRealEstateCompanyType($companyType)) {
+            unset($catalog['Customers']);
+        }
+
+        return $catalog;
     }
 
     public function isTenantAdminLike(User $user, bool $isPrimaryAdmin = false): bool
@@ -167,13 +180,13 @@ class TenantAdminModulePermissionService
      * @param  array<string, mixed>|null  $meta
      * @return array<string, mixed>
      */
-    public function expandMetaData(?array $meta): array
+    public function expandMetaData(?array $meta, ?string $companyType = null): array
     {
         $meta = is_array($meta) ? $meta : [];
         $current = is_array($meta['module_permissions'] ?? null) ? $meta['module_permissions'] : [];
         $expanded = [];
 
-        foreach ($this->catalog() as $group => $permissions) {
+        foreach ($this->catalog($companyType) as $group => $permissions) {
             $existing = is_array($current[$group] ?? null) ? $current[$group] : [];
             $expanded[$group] = array_values(array_unique(array_merge($permissions, $existing)));
         }
@@ -185,12 +198,22 @@ class TenantAdminModulePermissionService
             $expanded[$group] = is_array($permissions) ? array_values($permissions) : $permissions;
         }
 
+        if ($this->isRealEstateCompanyType($companyType)) {
+            unset($expanded['Customers']);
+            if (is_array($expanded['Reports'] ?? null)) {
+                $expanded['Reports'] = array_values(array_filter(
+                    $expanded['Reports'],
+                    fn ($perm) => ! str_starts_with((string) $perm, 'Customers Report')
+                ));
+            }
+        }
+
         $meta['module_permissions'] = $expanded;
 
         return $meta;
     }
 
-    public function persistIfIncomplete(User $user): void
+    public function persistIfIncomplete(User $user, ?string $companyType = null): void
     {
         $meta = is_array($user->meta_data) ? $user->meta_data : [];
         $leadPerms = is_array(data_get($meta, 'module_permissions.Leads'))
@@ -202,12 +225,19 @@ class TenantAdminModulePermissionService
         }
 
         $user->forceFill([
-            'meta_data' => $this->expandMetaData($meta),
+            'meta_data' => $this->expandMetaData($meta, $companyType),
         ])->save();
     }
 
     protected function normalizeRole(string $value): string
     {
         return strtolower(trim(preg_replace('/\s+/', ' ', str_replace(['_', '-'], ' ', $value)) ?? $value));
+    }
+
+    protected function isRealEstateCompanyType(?string $companyType): bool
+    {
+        $normalized = strtolower(trim((string) $companyType));
+
+        return $normalized !== '' && str_contains($normalized, 'real');
     }
 }

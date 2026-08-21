@@ -5,6 +5,8 @@ namespace App\Providers;
 use App\Models\Feature;
 use App\Services\AiCopilot\AiCopilotChatService;
 use App\Services\AiCopilot\CopilotFinancialDecisionGate;
+use App\Services\FinancialDecision\Adapters\FinancialInputAdapter;
+use App\Services\FinancialDecision\Adapters\RealEstateAdapter;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\ServiceProvider;
 
@@ -13,6 +15,7 @@ class FinancialDecisionServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->app->bind(AiCopilotChatService::class, CopilotFinancialDecisionGate::class);
+        $this->app->bind(FinancialInputAdapter::class, RealEstateAdapter::class);
     }
 
     public function boot(): void

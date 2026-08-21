@@ -8,6 +8,7 @@ import CopilotNotificationBell from '@features/ai-copilot/components/CopilotNoti
 import CopilotAssignLeadModal from '@features/ai-copilot/components/CopilotAssignLeadModal'
 import { useTheme } from '@shared/context/ThemeProvider.jsx'
 import { useAppState } from '@shared/context/AppStateProvider'
+import { isRealEstateCompanyType, resolveTenantCompanyTypeSources } from '@shared/utils/tenantCompanyType'
 
 function getCopilotText(entry, isRtl) {
   if (!entry || typeof entry !== 'object') return entry
@@ -32,6 +33,114 @@ function getInputPlaceholder(isRtl) {
   return isRtl
     ? '\u0627\u0633\u0623\u0644 \u0639\u0646 \u0627\u0644\u062a\u0642\u0627\u0631\u064a\u0631\u060c \u0627\u0644\u0644\u064a\u062f\u0632 \u0627\u0644\u0645\u062a\u0623\u062e\u0631\u0629\u060c \u0627\u0644\u0623\u0643\u0634\u0646\u0632\u060c \u0623\u0648 \u0627\u0644\u062a\u0627\u0633\u0643\u0627\u062a...'
     : 'Ask Copilot about reports, delayed leads, lead actions, or tasks...'
+}
+
+function FinancialDecisionCard({ action, isRtl = false }) {
+  const { resolvedTheme } = useTheme()
+  const isLight = resolvedTheme === 'light'
+  const ar = action?.locale === 'ar' || (action?.locale !== 'en' && isRtl)
+  const labels = action?.labels || {}
+  const tone = action?.tone || 'neutral'
+  const toneClass = {
+    success: isLight
+      ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+      : 'border-emerald-700/60 bg-emerald-950/40 text-emerald-100',
+    warning: isLight
+      ? 'border-amber-200 bg-amber-50 text-amber-900'
+      : 'border-amber-700/60 bg-amber-950/40 text-amber-100',
+    danger: isLight
+      ? 'border-rose-200 bg-rose-50 text-rose-800'
+      : 'border-rose-700/60 bg-rose-950/40 text-rose-100',
+    neutral: isLight
+      ? 'border-slate-200 bg-slate-50 text-slate-700'
+      : 'border-slate-700 bg-slate-900/70 text-slate-100',
+  }[tone] || (isLight ? 'border-slate-200 bg-slate-50 text-slate-700' : 'border-slate-700 bg-slate-900/70 text-slate-100')
+
+  const badgeClass = {
+    success: isLight ? 'bg-emerald-600 text-white' : 'bg-emerald-500 text-white',
+    warning: isLight ? 'bg-amber-500 text-white' : 'bg-amber-400 text-slate-900',
+    danger: isLight ? 'bg-rose-600 text-white' : 'bg-rose-500 text-white',
+    neutral: isLight ? 'bg-slate-600 text-white' : 'bg-slate-500 text-white',
+  }[tone] || (isLight ? 'bg-slate-600 text-white' : 'bg-slate-500 text-white')
+
+  return (
+    <div dir={ar ? 'rtl' : 'ltr'} className={`w-full rounded-2xl border p-3 shadow-sm ${toneClass}`}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <p className={`text-[11px] font-medium ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+            {action.headline || (ar ? 'تقييم العرض التجاري' : 'Commercial offer evaluation')}
+          </p>
+          <p className="mt-1 text-base font-semibold tracking-tight">
+            {labels.decision || (ar ? 'القرار' : 'Decision')}: {action.decision_label}
+          </p>
+        </div>
+        <span className={`rounded-full px-3 py-1 text-[11px] font-semibold ${badgeClass}`}>
+          {action.decision_label}
+        </span>
+      </div>
+
+      {action.narrative ? (
+        <p className="mt-3 whitespace-pre-wrap text-xs leading-relaxed opacity-95">
+          {action.narrative}
+        </p>
+      ) : null}
+
+      {Array.isArray(action.reasons) && action.reasons.length > 0 ? (
+        <div className="mt-3 space-y-1">
+          {action.reasons.map((reason) => (
+            <p key={reason} className="text-xs leading-relaxed opacity-90">
+              {labels.reason || (ar ? 'السبب' : 'Reason')}: {reason}
+            </p>
+          ))}
+        </div>
+      ) : null}
+
+      {Array.isArray(action.warnings) && action.warnings.length > 0 ? (
+        <div className="mt-2 space-y-1">
+          {action.warnings.map((warning) => (
+            <p key={warning} className="text-xs leading-relaxed opacity-90">
+              {labels.warning || (ar ? 'تنبيه' : 'Warning')}: {warning}
+            </p>
+          ))}
+        </div>
+      ) : null}
+
+      {Array.isArray(action.metrics) && action.metrics.length > 0 ? (
+        <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+          {action.metrics.map((row) => (
+            <div
+              key={`${row.label}-${row.value}`}
+              className={`rounded-xl border px-3 py-2 ${isLight ? 'border-white/80 bg-white/80' : 'border-white/10 bg-black/20'}`}
+            >
+              <p className={`text-[11px] ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>{row.label}</p>
+              <p className="mt-0.5 text-sm font-semibold tabular-nums">{row.value}</p>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      {Array.isArray(action.recommendations) && action.recommendations.length > 0 ? (
+        <div className={`mt-3 rounded-xl border px-3 py-2 ${isLight ? 'border-sky-200 bg-sky-50/80' : 'border-sky-800/60 bg-sky-950/40'}`}>
+          <p className={`text-[11px] font-semibold ${isLight ? 'text-sky-700' : 'text-sky-200'}`}>
+            {labels.alternatives || (ar ? 'بدائل من المحرك' : 'Engine alternatives')}
+          </p>
+          <ul className="mt-1 space-y-1">
+            {action.recommendations.map((item) => (
+              <li key={`${item.code}-${item.value}`} className="text-xs font-medium leading-relaxed">
+                {item.label}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {action.footer ? (
+        <p className={`mt-3 text-[11px] leading-relaxed ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+          {action.footer}
+        </p>
+      ) : null}
+    </div>
+  )
 }
 
 function escapeRegex(value) {
@@ -395,6 +504,10 @@ function ActionButtons({
       )
     }
 
+    if (action.type === 'financial_decision_card') {
+      return <FinancialDecisionCard key={key} action={action} isRtl={isRtl} />
+    }
+
     return null
   }
 
@@ -439,7 +552,7 @@ export default function BesouholaCopilotPanel({
 }) {
   const { resolvedTheme } = useTheme()
   const isLight = resolvedTheme === 'light'
-  const { user, activeModules } = useAppState()
+  const { user, activeModules, company, crmSettings } = useAppState()
   const navigate = useNavigate()
   const listRef = useRef(null)
   const [boot, setBoot] = useState({ loading: false, error: '', payload: null })
@@ -832,6 +945,7 @@ export default function BesouholaCopilotPanel({
     const reportsModulePerms = Array.isArray(modulePermissions.Reports) ? modulePermissions.Reports : []
     const hasExplicitReportsPerms = Object.prototype.hasOwnProperty.call(modulePermissions, 'Reports')
     const isTelesalesModuleEnabled = Array.isArray(activeModules) && activeModules.includes('telesales')
+    const isRealEstateTenant = isRealEstateCompanyType(...resolveTenantCompanyTypeSources(company, crmSettings))
     const roleLower = String(user?.role || '').toLowerCase()
     const isAdminRole = user?.is_super_admin || roleLower === 'admin' || roleLower === 'tenant admin' || roleLower === 'tenant-admin'
     const hasReportsAccess = isAdminRole || controlModulePerms.includes('showReports')
@@ -841,6 +955,7 @@ export default function BesouholaCopilotPanel({
     return COPILOT_REPORT_CATALOG.filter((report) => {
       if (report.requiresModule === 'telesales' && !isTelesalesModuleEnabled) return false
       if (report.key === 'sales_to_telesales' && !isTelesalesModuleEnabled) return false
+      if (report.requiresCompanyType === 'general' && isRealEstateTenant) return false
       if (isAdminRole) return true
       if (!hasExplicitReportsPerms) return true
       const reportModuleName = report.permission
@@ -962,7 +1077,11 @@ export default function BesouholaCopilotPanel({
             ) : null}
 
             {!boot.loading && !boot.error ? (
-              messages.map((message) => (
+              messages.map((message) => {
+                const hasFinancialCard = Array.isArray(message.ui_actions)
+                  && message.ui_actions.some((action) => action?.type === 'financial_decision_card')
+
+                return (
                 <div
                   key={message.id}
                   className={`w-full rounded-2xl px-3 py-2 text-sm ${
@@ -973,11 +1092,13 @@ export default function BesouholaCopilotPanel({
                     : 'mr-auto max-w-full border border-slate-700 bg-slate-900 text-slate-100'
                   }`}
                 >
-                  <div className="whitespace-pre-wrap break-words leading-relaxed">
-                    {message.id === 'welcome'
-                      ? getWelcomeMessage(isRtl)
-                      : renderLinkedReportText(message.content, navigate, visibleCatalog)}
-                  </div>
+                  {!hasFinancialCard ? (
+                    <div className="whitespace-pre-wrap break-words leading-relaxed">
+                      {message.id === 'welcome'
+                        ? getWelcomeMessage(isRtl)
+                        : renderLinkedReportText(message.content, navigate, visibleCatalog)}
+                    </div>
+                  ) : null}
                   {message.role === 'assistant' && message.id === 'welcome' && showQuickActions ? (
                     <QuickActions
                       actions={boot.payload?.quick_actions || []}
@@ -1002,7 +1123,8 @@ export default function BesouholaCopilotPanel({
                     />
                   ) : null}
                 </div>
-              ))
+                )
+              })
             ) : null}
 
             {sending ? (
